@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Single entrypoint for the Ableton tools engine. Runs under uv so deps resolve
+# from pyproject.toml. The heavy `transcribe` extra is added only for
+# `ableton midi transcribe`, keeping the default environment light.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXTRA=()
+if [ "${1:-}" = "midi" ] && [ "${2:-}" = "transcribe" ]; then
+  EXTRA=(--extra transcribe)
+fi
+exec uv run --project "$HERE" "${EXTRA[@]}" python -m ableton_tools.cli "$@"
