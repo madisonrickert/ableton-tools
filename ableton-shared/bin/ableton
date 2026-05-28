@@ -8,4 +8,4 @@ EXTRA=()
 if [ "${1:-}" = "midi" ] && [ "${2:-}" = "transcribe" ]; then
   EXTRA=(--extra transcribe)
 fi
-exec uv run --project "$HERE" "${EXTRA[@]}" python -m ableton_tools.cli "$@"
+exec uv run --project "$HERE" ${EXTRA[@]+"${EXTRA[@]}"} python -m ableton_tools.cli "$@"
