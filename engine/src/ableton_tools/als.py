@@ -172,7 +172,12 @@ def warp_to_grid(xml, clip_names, bpm, durations):
             f'<WarpMarker Id="1" SecTime="{dur_s:g}" BeatTime="{end_beat:g}"/>\n'
             "</WarpMarkers>"
         )
-        block = re.sub(r"<WarpMarkers>.*?</WarpMarkers>", markers, block, flags=re.DOTALL)
+        block, n_replaced = re.subn(
+            r"<WarpMarkers>.*?</WarpMarkers>", markers, block, flags=re.DOTALL)
+        if n_replaced == 0:
+            raise ValueError(
+                f"Clip {name!r} has no <WarpMarkers> block to replace; "
+                "cannot grid-lock it")
         if "<IsWarped" in block:
             block = re.sub(r'<IsWarped Value="(true|false)"/>',
                            '<IsWarped Value="true"/>', block)

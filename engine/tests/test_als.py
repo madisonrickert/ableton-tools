@@ -1,4 +1,6 @@
 import gzip
+import re
+import pytest
 from ableton_tools import als
 
 
@@ -207,3 +209,10 @@ def test_rename_refs_only_touches_path_tags(als_file):
     assert '<Name Value="Samples/Imported/bass.wav"/>' in out
     assert '<RelativePath Value="Samples/Imported/x.wav"/>' in out
     assert diff["changed"] == 1
+
+
+def test_warp_to_grid_errors_on_missing_warpmarkers(als_file):
+    xml = als.read_als(str(als_file()))
+    xml = re.sub(r"<WarpMarkers>.*?</WarpMarkers>\n?", "", xml, flags=re.DOTALL)
+    with pytest.raises(ValueError, match="bass_clip"):
+        als.warp_to_grid(xml, ["bass_clip"], bpm=120.0, durations={"bass_clip": 8.0})
