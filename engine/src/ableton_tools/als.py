@@ -25,10 +25,16 @@ def write_als(path, xml):
 
 
 def backup(path, op):
-    """Copy a .als to `<name>.als.backup-pre-<op>-<timestamp>`; return its path."""
+    """Copy a .als into the project's `Backup/` folder using Ableton's native
+    auto-backup naming: `<basename> [YYYY-MM-DD HHMMSS].als`. The Backup folder
+    is created if it does not exist. `op` is accepted for API stability but is
+    no longer encoded in the filename — Ableton's UI only recognizes its own
+    naming format when offering rollback. Returns the new path as a string."""
     path = Path(path)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    dest = path.with_name(f"{path.name}.backup-pre-{op}-{stamp}")
+    backup_dir = path.parent / "Backup"
+    backup_dir.mkdir(exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d %H%M%S")
+    dest = backup_dir / f"{path.stem} [{stamp}].als"
     dest.write_bytes(path.read_bytes())
     return str(dest)
 
@@ -166,16 +172,75 @@ def verify_refs(xml, base_dir):
     return missing
 
 
-def clone_track(xml, src_track_id, new_name, new_id):
-    """PRIMITIVE (not a command): duplicate a track block, bump its Id and
-    sub-component Ids by a large offset, and set a new EffectiveName. Returns
-    the new XML with the cloned track inserted after the source track."""
-    pattern = rf'(<\w+Track Id="{src_track_id}">.*?</\w+Track>)'
-    m = re.search(pattern, xml, re.DOTALL)
+def _find_track_block(xml, src_track_id):
+    """Locate `<{Tag}Track Id="src_track_id" ...>...</{Tag}Track>` in `xml`.
+    Returns (start, end, tag) where (start, end) bound the full block and tag
+    is e.g. "Audio" or "Midi". Tolerates extra attributes after Id
+    (`SelectedToolPanel`, `SelectedTransformationName`, ...) which the original
+    regex did not. Assumes tracks do not nest (Ableton's invariant)."""
+    open_re = re.compile(rf'<(\w+)Track\s+Id="{src_track_id}"[^>]*>')
+    m = open_re.search(xml)
     if not m:
         raise KeyError(f"Track Id {src_track_id} not found")
-    block = m.group(1)
-    clone = re.sub(r'Id="(\d+)"', lambda g: f'Id="{int(g.group(1)) + 30000}"', block)
-    clone = re.sub(rf'(<\w+Track Id=")\d+("', rf"\g<1>{new_id}\g<2>", clone, count=1)
-    clone = re.sub(r'(<EffectiveName Value=")[^"]*(")', rf"\g<1>{new_name}\g<2>", clone, count=1)
-    return xml[: m.end()] + "\n" + clone + xml[m.end():]
+    tag = m.group(1)
+    end = xml.find(f"</{tag}Track>", m.end())
+    if end < 0:
+        raise RuntimeError(f"Closing </{tag}Track> not found for Id={src_track_id}")
+    return m.start(), end + len(f"</{tag}Track>"), tag
+
+
+def clone_track(xml, src_track_id, new_name, new_id, id_offset=None):
+    """PRIMITIVE (not a command): duplicate a track block, give every internal
+    `Id="N"` a unique value via `id_offset` (default: auto-allocate above the
+    document's current max Id), set the top-level track Id and EffectiveName,
+    insert the clone after the source, and bump `<NextPointeeId>` to cover the
+    new IDs (Ableton refuses to load a .als if any Id is >= NextPointeeId).
+
+    `id_offset` is added to every `Id="N"` inside the cloned block before the
+    top-level Id is then overwritten with `new_id`. Pass an explicit offset
+    when calling repeatedly so each clone occupies a distinct ID range; if
+    omitted, the offset is chosen as the next 10000-aligned value above the
+    current document max."""
+    s, e, _tag = _find_track_block(xml, src_track_id)
+    block = xml[s:e]
+
+    all_ids = [int(x) for x in re.findall(r'Id="(\d+)"', xml)]
+    doc_max = max(all_ids) if all_ids else 0
+    if id_offset is None:
+        id_offset = ((doc_max // 10000) + 1) * 10000
+
+    clone = re.sub(
+        r'Id="(\d+)"',
+        lambda g: f'Id="{int(g.group(1)) + id_offset}"',
+        block,
+    )
+    clone = re.sub(
+        rf'(<\w+Track Id=")\d+(")',
+        rf"\g<1>{new_id}\g<2>",
+        clone,
+        count=1,
+    )
+    clone = re.sub(
+        r'(<EffectiveName Value=")[^"]*(")',
+        rf"\g<1>{new_name}\g<2>",
+        clone,
+        count=1,
+    )
+
+    new_xml = xml[:e] + "\n" + clone + xml[e:]
+
+    # Bump NextPointeeId past every Id we now have in the document. Required
+    # for Ableton to accept the file — without this, load fails with:
+    # "NextPointeeId is too low: <stored> must be bigger than <max-id>".
+    max_id = max(int(x) for x in re.findall(r'Id="(\d+)"', new_xml))
+    new_xml, n = re.subn(
+        r'(<NextPointeeId Value=")\d+(")',
+        rf'\g<1>{max_id + 1}\g<2>',
+        new_xml,
+        count=1,
+    )
+    if n == 0:
+        # No NextPointeeId in this document (older format or minimal fixture).
+        # Caller should add one if writing a Live 11+ file.
+        pass
+    return new_xml
