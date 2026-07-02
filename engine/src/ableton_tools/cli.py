@@ -12,7 +12,7 @@ SUBCOMMANDS = [
     {"name": "tempo", "desc": "Detect tempo, sub-ms precision, and drift of an audio file."},
     {"name": "drift", "desc": "Measure time drift between a master and its stems-sum."},
     {"name": "midi", "desc": "MIDI tools: `transcribe` audio->MIDI, `compare` MIDI files."},
-    {"name": "als", "desc": "Inspect/edit a .als: inspect, rename, move, warp-to-grid, move-clip, snap."},
+    {"name": "als", "desc": "Inspect/edit a .als: inspect, rename, move, warp-to-grid, move-clip, snap, import-stems."},
     {"name": "manifest", "desc": "List all subcommands (this command)."},
 ]
 
@@ -144,9 +144,43 @@ def _cmd_als(args):
             new_xml, d = als.move_clip_to_beat(new_xml, name, v["beat"], v["dur_s"], v["bpm"])
             diffs.append(d)
         out = _als_commit(args, new_xml, {"snaps": diffs}, "snap")
+    elif args.als_cmd == "import-stems":
+        from . import import_stems as ist
+        from pathlib import Path
+        stem_paths = sorted(Path(args.stems).glob(args.pattern))
+        if not stem_paths:
+            raise UsageError(
+                f"No files matching {args.pattern!r} in {args.stems}",
+                hint="check --stems and --pattern")
+        master_id = args.master_track
+        if not master_id.isdigit():  # resolve EffectiveName -> Id
+            tracks = als.inspect_xml(xml)["tracks"]
+            hits = [t["id"] for t in tracks if t["name"] == master_id]
+            if len(hits) != 1:
+                raise UsageError(
+                    f"Track name {master_id!r} matched {len(hits)} tracks",
+                    hint="pass the numeric track Id from `ableton als inspect`")
+            master_id = hits[0]
+        project_dir = Path(args.als).resolve().parent
+        master_audio = ist.master_audio_path(xml, master_id, project_dir)
+        if not master_audio.exists():
+            raise UsageError(
+                f"Master audio not found: {master_audio}",
+                hint="the .als RelativePath must resolve against the project dir")
+        problems = ist.check_stem_invariants(master_audio, stem_paths)
+        if problems:
+            raise UsageError(
+                "Stems do not match the master's frames/samplerate: "
+                + ", ".join(p["file"] for p in problems),
+                hint="stem import clones the master's warp markers, which is "
+                     "only valid for identical-length, same-rate audio")
+        colors = _load_manifest(args.colors) if args.colors else None
+        new_xml, diff = ist.import_stems(xml, master_id, stem_paths,
+                                         project_dir, colors=colors)
+        out = _als_commit(args, new_xml, diff, "import-stems")
     else:
         raise SystemExit("als requires a subcommand: inspect | rename | move | "
-                         "warp-to-grid | move-clip | snap")
+                         "warp-to-grid | move-clip | snap | import-stems")
     _emit(out, args.json, lambda o: print(json.dumps(o, indent=2)))
     return 0
 
@@ -206,6 +240,16 @@ def build_parser():
     sn = alsub.add_parser("snap")
     sn.add_argument("als"); sn.add_argument("--manifest", required=True)
     sn.add_argument("--commit", action="store_true"); sn.add_argument("--json", action="store_true")
+    ims = alsub.add_parser("import-stems")
+    ims.add_argument("als")
+    ims.add_argument("--master-track", required=True,
+                     help="master AudioTrack Id, or its EffectiveName")
+    ims.add_argument("--stems", required=True, help="directory of stem files")
+    ims.add_argument("--pattern", default="*.wav")
+    ims.add_argument("--colors", default=None,
+                     help="JSON file {label: color_int} overriding the built-in map")
+    ims.add_argument("--commit", action="store_true")
+    ims.add_argument("--json", action="store_true")
     return p
 
 

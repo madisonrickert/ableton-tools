@@ -2,6 +2,7 @@ import json
 import numpy as np
 import soundfile as sf
 from ableton_tools import cli
+from conftest import STEM_ALS
 
 
 def test_manifest_lists_subcommands(capsys):
@@ -81,3 +82,35 @@ def test_broken_manifest_json_emits_structured_error(als_file, tmp_path, capsys)
     assert rc != 0
     err = json.loads(capsys.readouterr().err)
     assert "bad.json" in err["error"]
+
+
+def test_als_import_stems_dry_run(als_file, stem_project, capsys):
+    project_dir, stems = stem_project
+    p = als_file(name="proj.als", xml=STEM_ALS)
+    # relocate the .als into the project dir so relative paths resolve
+    target = project_dir / "proj.als"
+    target.write_bytes(p.read_bytes())
+    rc = cli.main(["als", "import-stems", str(target),
+                   "--master-track", "14", "--stems", str(project_dir / "suno-stems"),
+                   "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["dry_run"] is True
+    assert len(out["diff"]["stems"]) == 2
+    assert target.read_bytes() == p.read_bytes()  # nothing written
+
+
+def test_als_import_stems_rejects_mismatched_stems(als_file, stem_project, capsys):
+    import numpy as np
+    import soundfile as sf
+    project_dir, stems = stem_project
+    sf.write(str(project_dir / "suno-stems" / "2 Bass.wav"),
+             np.zeros(50, dtype=np.float32), 8000)  # wrong length
+    target = project_dir / "proj.als"
+    target.write_bytes(als_file(name="p2.als", xml=STEM_ALS).read_bytes())
+    rc = cli.main(["als", "import-stems", str(target),
+                   "--master-track", "14", "--stems", str(project_dir / "suno-stems"),
+                   "--json"])
+    assert rc != 0
+    err = json.loads(capsys.readouterr().err)
+    assert "2 Bass.wav" in err["error"] or "2 Bass.wav" in (err["hint"] or "")

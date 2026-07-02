@@ -103,3 +103,57 @@ def als_file(tmp_path):
             fh.write(xml.encode("utf-8"))
         return p
     return _make
+
+
+# Master-track fixture with the full set of tags import-stems must repoint.
+STEM_ALS = """<?xml version="1.0" encoding="UTF-8"?>
+<Ableton MajorVersion="5" MinorVersion="11.0_11300" SchemaChangeCount="3" Creator="Ableton Live 11.3">
+<LiveSet>
+<NextPointeeId Value="100"/>
+<Tracks>
+<AudioTrack Id="14" SelectedToolPanel="3">
+<Name><EffectiveName Value="1-Master"/><MemorizedFirstClipName Value="master_clip"/></Name>
+<Color Value="5"/>
+<DeviceChain><MainSequencer><ClipTimeable><ArrangerAutomation><Events>
+<AudioClip Id="1" Time="0">
+<Name Value="master_clip"/>
+<Color Value="5"/>
+<CurrentStart Value="0"/>
+<CurrentEnd Value="16"/>
+<SampleRef><FileRef>
+<RelativePath Value="Samples/Imported/master.wav"/>
+<Path Value="/abs/Samples/Imported/master.wav"/>
+<OriginalFileSize Value="123456"/>
+<OriginalCrc Value="9999"/>
+</FileRef></SampleRef>
+<WarpMarkers>
+<WarpMarker Id="0" SecTime="0" BeatTime="0"/>
+<WarpMarker Id="2" SecTime="7.5" BeatTime="16"/>
+</WarpMarkers>
+<IsWarped Value="true"/>
+<IsSongTempoLeader Value="true"/>
+</AudioClip>
+</Events></ArrangerAutomation></ClipTimeable></MainSequencer></DeviceChain>
+</AudioTrack>
+</Tracks>
+<MasterTrack><DeviceChain><Mixer><Tempo>
+<Manual Value="120"/>
+</Tempo></Mixer></DeviceChain></MasterTrack>
+</LiveSet>
+</Ableton>
+"""
+
+
+@pytest.fixture
+def stem_project(tmp_path):
+    """Project dir with master + two stems, all identical frames/samplerate."""
+    sr = 8000
+    x = (0.1 * np.sin(2 * np.pi * 220 * np.arange(sr) / sr)).astype(np.float32)
+    d = tmp_path / "Samples" / "Imported"
+    d.mkdir(parents=True)
+    sf.write(str(d / "master.wav"), x, sr)
+    stems = tmp_path / "suno-stems"
+    stems.mkdir()
+    sf.write(str(stems / "0 Lead Vocals.wav"), x, sr)
+    sf.write(str(stems / "1 Drums.wav"), x, sr)
+    return tmp_path, [stems / "0 Lead Vocals.wav", stems / "1 Drums.wav"]
