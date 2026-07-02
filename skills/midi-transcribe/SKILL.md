@@ -18,4 +18,4 @@ Tuned defaults (from the source project's sax transcription): onset_threshold
 monophonic lead; for denser material, mention it and we can expose overrides.
 
 First run installs basic-pitch/TensorFlow (can take a minute). To sanity-check a
-transcription, follow up with `ableton-midi-compare` against a reference MIDI.
+transcription, follow up with the `midi-compare` skill against a reference MIDI.
