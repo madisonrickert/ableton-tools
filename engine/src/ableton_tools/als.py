@@ -108,18 +108,24 @@ def set_tempo(xml, bpm):
 
 
 def rename_refs(xml, mapping):
-    """Replace RelativePath/Path values per `mapping` (old_rel -> new_rel)."""
+    """Replace RelativePath/Path values per `mapping` (old_rel -> new_rel).
+    Only <RelativePath> and <Path> leaves are patched; any other attribute
+    whose value happens to equal an old path is left alone."""
     changed = 0
     out = xml
     for old, new in mapping.items():
         old_name = Path(old).name
         new_name = Path(new).name
         before = out
-        out = out.replace(f'Value="{old}"', f'Value="{new}"')
+        out = re.sub(
+            rf'(<(?:RelativePath|Path) Value="){re.escape(old)}(")',
+            lambda m: m.group(1) + new + m.group(2),
+            out,
+        )
         # also patch absolute Path leaves that end with the old filename
         out = re.sub(
             rf'(<Path Value="[^"]*/){re.escape(old_name)}(")',
-            rf"\g<1>{new_name}\g<2>",
+            lambda m: m.group(1) + new_name + m.group(2),
             out,
         )
         if out != before:

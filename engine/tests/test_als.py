@@ -195,3 +195,15 @@ def test_backup_same_second_collision_gets_distinct_paths(als_file):
     src_bytes = gzip.open(str(p), "rb").read()
     assert gzip.open(b1, "rb").read() == src_bytes
     assert gzip.open(b2, "rb").read() == src_bytes
+
+
+def test_rename_refs_only_touches_path_tags(als_file):
+    """A clip Name that happens to equal the old path must not be rewritten."""
+    xml = als.read_als(str(als_file()))
+    xml = xml.replace('<Name Value="bass_clip"/>',
+                      '<Name Value="Samples/Imported/bass.wav"/>')
+    out, diff = als.rename_refs(
+        xml, {"Samples/Imported/bass.wav": "Samples/Imported/x.wav"})
+    assert '<Name Value="Samples/Imported/bass.wav"/>' in out
+    assert '<RelativePath Value="Samples/Imported/x.wav"/>' in out
+    assert diff["changed"] == 1
