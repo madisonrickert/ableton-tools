@@ -141,13 +141,20 @@ def rename_refs(xml, mapping):
 
 
 def _clip_block(xml, clip_name):
-    """Return (start_idx, end_idx) of the <AudioClip>...</AudioClip> block whose
-    <Name Value="clip_name"/> matches, or raise."""
+    """Return (start_idx, end_idx) of the unique <AudioClip>...</AudioClip>
+    block whose <Name Value="clip_name"/> matches. Raises KeyError when the
+    name is missing or matches more than one clip."""
+    hits = []
     for m in re.finditer(r"<AudioClip\b.*?</AudioClip>", xml, re.DOTALL):
-        block = m.group(0)
-        if re.search(rf'<Name Value="{re.escape(clip_name)}"', block):
-            return m.start(), m.end()
-    raise KeyError(f"AudioClip named {clip_name!r} not found")
+        if re.search(rf'<Name Value="{re.escape(clip_name)}"', m.group(0)):
+            hits.append((m.start(), m.end()))
+    if not hits:
+        raise KeyError(f"AudioClip named {clip_name!r} not found")
+    if len(hits) > 1:
+        raise KeyError(
+            f"AudioClip name {clip_name!r} is ambiguous ({len(hits)} matches); "
+            "rename one clip or address it by a unique name")
+    return hits[0]
 
 
 def move_clip_to_beat(xml, clip_name, beat, dur_s, bpm):
@@ -158,6 +165,12 @@ def move_clip_to_beat(xml, clip_name, beat, dur_s, bpm):
     block = re.sub(r'(<CurrentStart Value=")[\d.]+(")', rf"\g<1>{beat:g}\g<2>", block)
     block = re.sub(r'(<CurrentEnd Value=")[\d.]+(")',
                    rf"\g<1>{beat + length_beats:g}\g<2>", block)
+    # Arrangement position: the AudioClip open tag's Time attribute is the
+    # clip's arrangement start in beats and must track CurrentStart. Absent
+    # on pure Session-view clips, hence subn without a required count.
+    block, _ = re.subn(
+        r'(<AudioClip\b[^>]*\bTime=")[\d.]+(")',
+        rf"\g<1>{beat:g}\g<2>", block, count=1)
     new_xml = xml[:s] + block + xml[e:]
     return new_xml, {"clip": clip_name, "to_beat": beat,
                      "end_beat": round(beat + length_beats, 6)}

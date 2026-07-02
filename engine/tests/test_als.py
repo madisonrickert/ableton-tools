@@ -226,3 +226,19 @@ def test_set_tempo_targets_master_track_not_first_tempo(als_file):
     out = als.set_tempo(xml, 134.0)
     assert '<Manual Value="99"/>' in out          # decoy untouched
     assert als.inspect_xml(out)["tempo"] == 134.0  # master tempo changed
+
+
+def test_clip_block_rejects_ambiguous_name(als_file):
+    xml = als.read_als(str(als_file()))
+    m = re.search(r"<AudioClip\b.*?</AudioClip>", xml, re.DOTALL)
+    twin = m.group(0).replace('Id="0"', 'Id="7"', 1)
+    xml_dup = xml[: m.end()] + "\n" + twin + xml[m.end():]
+    with pytest.raises(KeyError, match="[Aa]mbiguous"):
+        als.move_clip_to_beat(xml_dup, "bass_clip", beat=8.0, dur_s=7.5, bpm=120.0)
+
+
+def test_move_clip_updates_arrangement_time_attribute(als_file):
+    xml = als.read_als(str(als_file()))
+    out, _ = als.move_clip_to_beat(xml, "bass_clip", beat=8.0, dur_s=7.5, bpm=120.0)
+    assert re.search(r'<AudioClip Id="0" Time="8[.0]*"', out), \
+        "arrangement Time attribute must track CurrentStart"
