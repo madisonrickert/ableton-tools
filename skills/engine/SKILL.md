@@ -1,20 +1,27 @@
 ---
 name: engine
-description: Shared engine for working with Ableton Live projects — a uv-managed Python library plus a single `bin/ableton` dispatcher used by the ableton-* command skills (stem verification, tempo/drift analysis, MIDI transcription/comparison, and safe .als editing). Invoke a specific ableton-* skill for a task; use this directly only to run a raw subcommand or extend the library.
+description: Shared engine for the ableton-suite skills — a uv-managed Python library behind the single 'ableton' dispatcher (stem verification, tempo/drift analysis, MIDI transcription/comparison, safe .als editing, stem import). Invoke a specific ableton-suite skill for a task; use this directly to run a raw subcommand, extend the library, or when the 'ableton' command cannot be found.
 ---
 
-This skill is the engine behind the `ableton-*` command skills. It bundles the
-reusable signal-processing and `.als`-editing logic distilled from the
+This skill is the engine behind the ableton-suite command skills. It bundles
+the reusable signal-processing and `.als`-editing logic distilled from the
 "Come With Me to Polar Palooza" project's analysis scripts.
 
 ## Running the dispatcher
 
-All capability is exposed through one entrypoint, run under uv:
+The plugin puts `ableton` on the Bash PATH:
 
-`<this-skill-dir>/bin/ableton <subcommand> [args] [--json]`
+`ableton <subcommand> [args] [--json]`
 
-`ableton manifest --json` lists every subcommand. The shim adds the heavy
+`ableton manifest --json` lists every subcommand with its arguments,
+including nested ones. The shim runs under uv and adds the heavy
 `transcribe` extra only for `ableton midi transcribe`.
+
+If `ableton` is not on PATH (plugin disabled, headless quirk), call the
+dispatcher directly: `<plugin-root>/engine/bin/ableton`, where
+`<plugin-root>` is this skill's grandparent directory — the plugin cache
+copy (`~/.claude/plugins/cache/claude-custom-skills/ableton-suite/<version>`)
+or the repo checkout (`~/Developer/claude-custom-skills/ableton-suite`).
 
 ## Subcommands
 
@@ -28,6 +35,8 @@ All capability is exposed through one entrypoint, run under uv:
 - `als warp-to-grid <file.als> --tempo BPM --clips clips.json` — grid-lock clips.
 - `als move-clip <file.als> --clip NAME --to-beat B --dur-s S --bpm BPM`.
 - `als snap <file.als> --manifest snaps.json` — batch clip repositioning.
+- `als import-stems <file.als> --master-track <id|name> --stems <dir>` —
+  clone a warped master per stem and relink (see the als-files skill).
 
 ## Verdicts are yours, not the tool's
 
@@ -35,16 +44,27 @@ Per Madison's no-Anthropic-API rule, commands emit raw numbers plus threshold
 bands (e.g. `stem-verify` returns `worst_db`, `median_db`, and `bands`). Read
 the JSON and state the verdict yourself — no API call is built in.
 
+## Errors are structured
+
+Operator-correctable failures exit nonzero with `{"error": ..., "hint": ...}`
+on stderr (JSON mode) or `error:`/`hint:` lines (human mode). A traceback
+means an engine bug, not a usage problem.
+
 ## Safety for `.als` edits
 
-Every mutating `als` subcommand defaults to a dry-run JSON diff. Pass `--commit`
-to write; on commit it first saves `<name>.als.backup-pre-<op>-<timestamp>`,
-then re-verifies all file refs and restores from backup if any break. Always
-close Ableton before committing edits to a `.als`.
+Every mutating `als` subcommand defaults to a dry-run JSON diff. Pass
+`--commit` to write; on commit it first backs up to
+`<project>/Backup/<basename> [YYYY-MM-DD HHMMSS].als` (Ableton's native
+convention — visible in Live's rollback UI), then re-verifies all file refs
+and restores from the backup if any break. Always close Ableton before
+committing edits to a `.als`.
 
 ## Library API (for extension)
 
-`src/ableton_tools/`: `audio` (I/O, mono-sum, envelope), `align` (xcorr + LSQ
-lag), `cancel` (cancellation dB, stem_verify), `tempo`, `midi`, `transcribe`,
-`als` (inspect + patchers + `clone_track` primitive). See `CLAUDE.md` for JSON
-shapes and `references/` for the `.als` format notes and source-script lineage.
+`engine/src/ableton_tools/`: `audio` (I/O, mono-sum, envelope), `align`
+(xcorr + LSQ lag), `cancel` (cancellation dB, stem_verify), `tempo`, `midi`,
+`transcribe`, `als` (inspect + patchers + `clone_track`), `import_stems`
+(stem-import policy + color convention), `errors` (`UsageError`). See
+`engine/CLAUDE.md` for JSON shapes and `engine/references/` for the `.als`
+format notes and source-script lineage. Dev loop: `uv run --project
+<engine> --group dev pytest`, `uvx ruff check`, `uvx pyright src`.

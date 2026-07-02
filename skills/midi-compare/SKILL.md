@@ -3,11 +3,12 @@ name: midi-compare
 description: Compare two or three MIDI files by harmonic content (duration-weighted chroma cosine similarity) and timing drift (onset alignment + linear drift fit). Use when checking whether two transcriptions agree, or whether a MIDI part drifts in time against a trusted reference (e.g. Ableton's clock).
 ---
 
-You compare MIDI timelines using the shared Ableton engine
-(`ableton-shared`, a sibling skill).
+You compare MIDI timelines using the bundled Ableton engine (the `ableton`
+command on PATH; see the `engine` skill for the full command reference and
+fallback paths).
 
 ## Invoke
-`<repo>/ableton-shared/bin/ableton midi compare <A.mid> <B.mid> [<C.mid>] --json`
+`ableton midi compare <A.mid> <B.mid> [<C.mid>] --json`
 
 Returns, for each pair: `chroma_cosine` (1.0 = identical pitch-class content),
 `drift_offset_s` (constant timing offset), `drift_slope_s_per_s` (tempo drift —
