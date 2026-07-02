@@ -1,5 +1,5 @@
 ---
-name: ableton-stem-verify
+name: stem-verify
 description: Verify whether a folder of audio stems sums back to a given master (a "sibling" check) by measuring windowed cancellation depth, correlation, and time offset. Use when confirming that exported stems and a master are the same render, or identifying which master a stems folder belongs to.
 ---
 

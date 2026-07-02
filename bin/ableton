@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Plugin-root shim: Claude Code puts a plugin's bin/ on the Bash PATH.
+# Delegate to the engine dispatcher, which resolves its own project root.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$HERE/engine/bin/ableton" "$@"

@@ -1,5 +1,5 @@
 ---
-name: ableton-als-warp
+name: als-warp
 description: Grid-lock Ableton clips to a fixed project tempo (two warp markers per clip to preserve inter-clip phase) and reposition clips to exact beats. Use when stems were auto-warped and drift apart, or to snap clips to integer beats. Mutations are dry-run by default and auto-backup before committing.
 ---
 

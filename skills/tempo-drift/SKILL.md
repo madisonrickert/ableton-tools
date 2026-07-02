@@ -1,5 +1,5 @@
 ---
-name: ableton-tempo-drift
+name: tempo-drift
 description: Detect the tempo of an audio file (beat-tracked BPM, sub-millisecond precise BPM, and real tempo drift via inter-beat-interval regression), and measure time drift between a master and its stems-sum. Use when matching a stem's tempo map to a master, choosing a project BPM, or diagnosing why warped stems slip out of phase.
 ---
 

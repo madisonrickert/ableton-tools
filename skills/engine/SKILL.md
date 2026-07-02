@@ -1,5 +1,5 @@
 ---
-name: ableton-shared
+name: engine
 description: Shared engine for working with Ableton Live projects — a uv-managed Python library plus a single `bin/ableton` dispatcher used by the ableton-* command skills (stem verification, tempo/drift analysis, MIDI transcription/comparison, and safe .als editing). Invoke a specific ableton-* skill for a task; use this directly only to run a raw subcommand or extend the library.
 ---
 

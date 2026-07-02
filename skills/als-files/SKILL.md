@@ -1,5 +1,5 @@
 ---
-name: ableton-als-files
+name: als-files
 description: Inspect an Ableton .als project (tempo, tracks, clips, file references) and safely rename or move the audio files it references while patching the .als so links stay intact. Use when reorganizing a project's sample files or auditing what a .als points to. Mutations are dry-run by default and auto-backup before committing.
 ---
 

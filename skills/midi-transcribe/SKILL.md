@@ -1,5 +1,5 @@
 ---
-name: ableton-midi-transcribe
+name: midi-transcribe
 description: Transcribe an audio stem (e.g. an isolated sax or synth line) to a MIDI file using Spotify basic-pitch with tuned parameters. Use when you need a MIDI version of a monophonic or lightly polyphonic audio part to edit in Ableton.
 ---
 

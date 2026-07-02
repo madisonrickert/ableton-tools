@@ -1,5 +1,5 @@
 ---
-name: ableton-midi-compare
+name: midi-compare
 description: Compare two or three MIDI files by harmonic content (duration-weighted chroma cosine similarity) and timing drift (onset alignment + linear drift fit). Use when checking whether two transcriptions agree, or whether a MIDI part drifts in time against a trusted reference (e.g. Ableton's clock).
 ---
 
