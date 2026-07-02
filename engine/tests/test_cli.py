@@ -512,3 +512,82 @@ def test_als_import_stems_master_audio_not_found(als_file, tmp_path, capsys):
     assert rc != 0
     err = json.loads(capsys.readouterr().err)
     assert "Master audio not found" in err["error"]
+
+
+def test_als_import_stems_commit_writes_backup_and_stems(als_file, stem_project, capsys):
+    project_dir, stems = stem_project
+    p = als_file(name="proj.als", xml=STEM_ALS)
+    target = project_dir / "proj.als"
+    target.write_bytes(p.read_bytes())
+    rc = cli.main(
+        [
+            "als",
+            "import-stems",
+            str(target),
+            "--master-track",
+            "14",
+            "--stems",
+            str(project_dir / "suno-stems"),
+            "--commit",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["committed"] is True
+    backup_path = Path(out["backup"])
+    assert backup_path.exists()
+    assert backup_path.parent.name == "Backup"
+    new_xml = als.read_als(str(target))
+    info = als.inspect_xml(new_xml)
+    names = [t["name"] for t in info["tracks"]]
+    assert len(names) == 3  # master + 2 stems, written for real
+    assert "Lead Vocals" in names[1] and "Drums" in names[2]
+
+
+def test_als_import_stems_commit_restores_when_stem_ref_vanishes(
+    als_file, stem_project, monkeypatch, capsys
+):
+    """If a stem's repointed RelativePath doesn't resolve under the project
+    dir by the time the post-write ref check runs (e.g. the stem file was
+    moved/deleted mid-commit), the commit must roll back to the pre-commit
+    backup rather than leave a .als with a dangling SampleRef."""
+    project_dir, stems = stem_project
+    p = als_file(name="proj.als", xml=STEM_ALS)
+    target = project_dir / "proj.als"
+    target.write_bytes(p.read_bytes())
+    # als.write_als's gzip output embeds the write-time mtime, so a faithful
+    # restore does not reproduce the original bytes; compare gunzipped XML.
+    before_xml = als.read_als(str(target))
+
+    vanishing_stem = project_dir / "suno-stems" / "1 Drums.wav"
+    assert vanishing_stem.exists()
+    real_write_als = als.write_als
+    state = {"writes": 0}
+
+    def _write_then_vanish(path, xml):
+        real_write_als(path, xml)
+        state["writes"] += 1
+        if state["writes"] == 1:  # only the initial commit write, not the restore
+            vanishing_stem.unlink()
+
+    monkeypatch.setattr(als, "write_als", _write_then_vanish)
+
+    rc = cli.main(
+        [
+            "als",
+            "import-stems",
+            str(target),
+            "--master-track",
+            "14",
+            "--stems",
+            str(project_dir / "suno-stems"),
+            "--commit",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["committed"] is False
+    assert any("Drums" in ref for ref in out["missing_refs"])
+    assert als.read_als(str(target)) == before_xml  # restored, original unchanged

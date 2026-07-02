@@ -95,3 +95,52 @@ def test_import_stems_rejects_stem_outside_project_dir(stem_project, tmp_path_fa
     outside_stem.write_bytes(stems[0].read_bytes())
     with pytest.raises(UsageError, match="outside the project directory"):
         ist.import_stems(STEM_ALS, "14", [outside_stem, stems[1]], project_dir)
+
+
+def test_import_stems_does_not_touch_device_name_outside_audioclip(stem_project):
+    """A device-bearing master track has its own bare <Name Value="..."> on
+    a plugin/device descriptor, outside the <AudioClip> block. The clip-Name
+    patch must be scoped to AudioClip sub-blocks only, so it must not
+    silently overwrite the device's Name with the stem label."""
+    project_dir, stems = stem_project
+    xml = STEM_ALS.replace(
+        "<DeviceChain><MainSequencer>",
+        '<DeviceChain><Devices><PluginDevice>'
+        '<Name Value="Some Plugin"/>'
+        "</PluginDevice></Devices><MainSequencer>",
+        1,
+    )
+    assert '<Name Value="Some Plugin"/>' in xml  # sanity: fixture built correctly
+
+    new_xml, _diff = ist.import_stems(xml, "14", stems, project_dir)
+
+    # The device descriptor's Name must survive untouched on every clone.
+    assert new_xml.count('<Name Value="Some Plugin"/>') == 3  # master + 2 clones
+    # The AudioClip clip Names must still become the bare stem labels.
+    assert '<Name Value="Lead Vocals"' in new_xml
+    assert '<Name Value="Drums"' in new_xml
+
+
+def test_import_stems_orders_numeric_stems_naturally(stem_project, tmp_path_factory):
+    """>=10 stems in a folder must sort numerically ('2 B' before '10 C'),
+    not lexicographically ('10 C' before '2 B')."""
+    project_dir, _ = stem_project
+    import numpy as np
+    import soundfile as sf
+
+    sr = 8000
+    x = (0.1 * np.sin(2 * np.pi * 220 * np.arange(sr) / sr)).astype(np.float32)
+    stems_dir = project_dir / "suno-stems"
+    names = ["1 A.wav", "2 B.wav", "10 C.wav"]
+    stem_paths = []
+    for name in names:
+        p = stems_dir / name
+        sf.write(str(p), x, sr)
+        stem_paths.append(p)
+    # Pass in lexicographic (scrambled) order to prove import_stems re-sorts.
+    unordered = [stem_paths[2], stem_paths[0], stem_paths[1]]
+
+    _new_xml, diff = ist.import_stems(STEM_ALS, "14", unordered, project_dir)
+
+    labels = [s["label"] for s in diff["stems"]]
+    assert labels == ["A", "B", "C"]

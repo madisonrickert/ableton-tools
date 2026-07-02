@@ -73,6 +73,16 @@ Color on the track and both clips, so a global replace within the clone is
 the right pattern.
 
 ### NextPointeeId
-`clone_track` bumps internal IDs and `<NextPointeeId>` automatically. Pass a
-distinct `id_offset` per call (e.g. `100`, `200`, `300`...) so the cloned ID
-ranges don't collide.
+`clone_track` bumps internal IDs and `<NextPointeeId>` automatically. The
+default (omit `id_offset`) auto-allocates a fresh, disjoint offset — rounded
+up to the next 10000 — above the document's current max Id on every call, so
+chained clones (`import_stems`'s per-stem loop) never collide. Do that unless
+you have a specific reason not to.
+
+If you do pass an explicit `id_offset`, small hand-picked values like `100`,
+`200`, `300`... are **not** safe: `clone_track` raises if the offset Ids
+collide with anything already in the document, and any real master track
+spans more than 100 internal Ids (attributes, warp markers, device
+parameters...), so an offset that small will collide and traceback. Pick
+offsets larger than the document's actual Id span, and keep them distinct
+per call — or just omit `id_offset` and let it auto-allocate.

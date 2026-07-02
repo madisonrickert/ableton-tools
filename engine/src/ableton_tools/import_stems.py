@@ -41,6 +41,21 @@ def _bare_label(filename_stem: str) -> str:
     return label or filename_stem
 
 
+_LEADING_INT_RE = re.compile(r"^(\d+)")
+
+
+def _natural_stem_key(p: Path) -> tuple[int, int, str]:
+    """Sort key for stem filenames: a leading integer prefix (e.g. '10' in
+    '10 C.wav') sorts numerically, not lexicographically, so a folder with
+    >=10 stems ('10 C.wav' vs '2 B.wav') keeps arrangement/EffectiveName
+    order sane. Filenames without a numeric prefix fall back to sorting by
+    name, after every prefixed file, keeping the order stable and total."""
+    m = _LEADING_INT_RE.match(p.stem)
+    if m:
+        return (0, int(m.group(1)), p.stem)
+    return (1, 0, p.stem)
+
+
 def _color_for(label: str, colors: dict[str, int] | None = None) -> int:
     table = dict(STEM_COLORS)
     if colors:
@@ -64,6 +79,39 @@ def _patch_attr(block: str, tag: str, value: str | int, required: bool = True) -
     if required and n == 0:
         raise UsageError(
             f"Cloned track block has no <{tag}> element to patch",
+            hint="the master track layout is unexpected; inspect the .als",
+        )
+    return out
+
+
+_AUDIO_CLIP_RE = re.compile(r"<AudioClip\b.*?</AudioClip>", re.DOTALL)
+
+
+def _patch_attr_in_clips(block: str, tag: str, value: str | int, required: bool = True) -> str:
+    """Set every `<tag Value="...">` inside each <AudioClip>...</AudioClip>
+    sub-block of `block`, leaving any same-named tag elsewhere in the block
+    (e.g. a device/plugin descriptor's bare <Name Value="..."> living in the
+    track's DeviceChain, outside any clip) untouched. Mirrors how
+    `als._clip_block` scopes edits to a single named clip, but here patches
+    every clip sub-block found (session + arrangement clips of the clone)."""
+    parts: list[str] = []
+    last = 0
+    n = 0
+    for m in _AUDIO_CLIP_RE.finditer(block):
+        parts.append(block[last : m.start()])
+        clip, count = re.subn(
+            rf'(<{tag} Value=")[^"]*(")',
+            lambda mm: mm.group(1) + str(value) + mm.group(2),
+            m.group(0),
+        )
+        n += count
+        parts.append(clip)
+        last = m.end()
+    parts.append(block[last:])
+    out = "".join(parts)
+    if required and n == 0:
+        raise UsageError(
+            f"Cloned track block has no <AudioClip> with a <{tag}> element to patch",
             hint="the master track layout is unexpected; inspect the .als",
         )
     return out
@@ -114,13 +162,15 @@ def import_stems(
     project_dir: str | Path,
     colors: dict[str, int] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Clone the master track once per stem file (sorted by filename),
+    """Clone the master track once per stem file (sorted naturally by
+    filename: numeric prefixes ordered as integers, so '10 C.wav' sorts
+    after '2 B.wav' rather than before it),
     repoint each clone's SampleRef, set bare-label clip names, demote the
     tempo lead, and apply the color convention. Returns (new_xml, diff).
 
     Pure XML transform: no disk writes. The CLI layer owns dry-run/commit."""
     project_dir = Path(project_dir)
-    sorted_stem_files = sorted(Path(p) for p in stem_files)
+    sorted_stem_files = sorted((Path(p) for p in stem_files), key=_natural_stem_key)
 
     all_ids = [int(x) for x in re.findall(r'Id="(\d+)"', xml)]
     base = ((max(all_ids) // 10000) + 1) * 10000 if all_ids else 10000
@@ -151,7 +201,10 @@ def import_stems(
         block = _patch_attr(block, "OriginalFileSize", stem.stat().st_size, required=False)
         block = _patch_attr(block, "OriginalCrc", 0, required=False)
         block = _patch_attr(block, "IsSongTempoLeader", "false", required=False)
-        block = _patch_attr(block, "Name", label)  # session + arrangement clips
+        # Scoped to AudioClip sub-blocks only: a device-bearing master track
+        # can have a plugin/device descriptor's own bare <Name Value="...">
+        # in the DeviceChain, outside any clip, which must not be clobbered.
+        block = _patch_attr_in_clips(block, "Name", label)  # session + arrangement clips
         block = _patch_attr(block, "MemorizedFirstClipName", label, required=False)
         block = _patch_attr(block, "Color", color, required=False)
 
