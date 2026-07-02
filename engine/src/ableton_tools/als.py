@@ -29,12 +29,25 @@ def backup(path, op):
     auto-backup naming: `<basename> [YYYY-MM-DD HHMMSS].als`. The Backup folder
     is created if it does not exist. `op` is accepted for API stability but is
     no longer encoded in the filename — Ableton's UI only recognizes its own
-    naming format when offering rollback. Returns the new path as a string."""
+    naming format when offering rollback. If two calls land in the same
+    wall-clock second, the collision is deduplicated with a ` (n)` counter
+    suffix appended inside the same naming shape: `<stem> [stamp] (2).als`,
+    `<stem> [stamp] (3).als`, etc. — the base `<stem> [stamp].als` form (what
+    Live's rollback UI recognizes) is used whenever it is free. Returns the
+    new path as a string."""
     path = Path(path)
     backup_dir = path.parent / "Backup"
     backup_dir.mkdir(exist_ok=True)
     stamp = time.strftime("%Y-%m-%d %H%M%S")
     dest = backup_dir / f"{path.stem} [{stamp}].als"
+    if dest.exists():
+        n = 2
+        while True:
+            candidate = backup_dir / f"{path.stem} [{stamp}] ({n}).als"
+            if not candidate.exists():
+                dest = candidate
+                break
+            n += 1
     dest.write_bytes(path.read_bytes())
     return str(dest)
 
@@ -197,10 +210,15 @@ def clone_track(xml, src_track_id, new_name, new_id, id_offset=None):
     new IDs (Ableton refuses to load a .als if any Id is >= NextPointeeId).
 
     `id_offset` is added to every `Id="N"` inside the cloned block before the
-    top-level Id is then overwritten with `new_id`. Pass an explicit offset
-    when calling repeatedly so each clone occupies a distinct ID range; if
-    omitted, the offset is chosen as the next 10000-aligned value above the
-    current document max."""
+    top-level Id is then overwritten with `new_id`. Two calling patterns are
+    collision-free: (1) chain calls, omitting `id_offset` each time so it is
+    re-derived from the growing document's current max Id, or (2) pass
+    distinct explicit `id_offset` values per call. Reusing the same explicit
+    `id_offset` across calls (or any other choice that lands a shifted Id or
+    `new_id` on an Id already present) is NOT silently safe: this function
+    checks the clone's resulting Ids against `xml`'s existing Ids before
+    inserting and raises ValueError, naming the offset and the colliding
+    ids, on overlap."""
     s, e, _tag = _find_track_block(xml, src_track_id)
     block = xml[s:e]
 
@@ -226,6 +244,16 @@ def clone_track(xml, src_track_id, new_name, new_id, id_offset=None):
         clone,
         count=1,
     )
+
+    clone_ids = {int(x) for x in re.findall(r'Id="(\d+)"', clone)}
+    colliding = clone_ids & set(all_ids)
+    if colliding:
+        raise ValueError(
+            f"clone_track: id_offset={id_offset} (new_id={new_id}) collides "
+            f"with existing Id(s) {sorted(colliding)} already present in the "
+            f"document. Pass a distinct id_offset, or omit id_offset to "
+            f"auto-allocate above the current document max."
+        )
 
     new_xml = xml[:e] + "\n" + clone + xml[e:]
 

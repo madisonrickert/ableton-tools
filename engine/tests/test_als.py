@@ -115,8 +115,13 @@ def test_clone_track_bumps_next_pointee_id(als_file):
 
 
 def test_clone_track_multiple_calls_do_not_collide_ids(als_file):
-    """Two clones of the same source must produce disjoint internal Id ranges.
-    The pre-fix hardcoded +30000 offset made repeat calls collide."""
+    """Chained clones (each call re-derives its auto id_offset from the
+    growing xml's current max Id) must produce disjoint internal Id ranges.
+    The pre-fix hardcoded +30000 offset made repeat calls collide. This does
+    NOT exercise a general collision-freedom guarantee: it covers the chained
+    auto-offset pattern specifically. Reusing the same explicit id_offset
+    across calls is not covered here and is guarded separately (raises
+    ValueError) in test_clone_track_same_explicit_id_offset_raises."""
     p = als_file(xml=_REALISTIC_ALS)
     xml = als.read_als(str(p))
     once = als.clone_track(xml, src_track_id="14", new_name="Stem 1", new_id=100)
@@ -148,6 +153,21 @@ def test_clone_track_multiple_calls_do_not_collide_ids(als_file):
             )
 
 
+def test_clone_track_same_explicit_id_offset_raises(als_file):
+    """A caller passing the same explicit id_offset twice lands the second
+    clone's shifted Ids on top of the first clone's — a silent Id collision
+    Ableton will refuse to load correctly. clone_track must detect this
+    in-call and raise ValueError naming the offending offset/ids."""
+    import pytest
+    p = als_file(xml=_REALISTIC_ALS)
+    xml = als.read_als(str(p))
+    once = als.clone_track(xml, src_track_id="14", new_name="Stem 1", new_id=100,
+                            id_offset=5000)
+    with pytest.raises(ValueError):
+        als.clone_track(once, src_track_id="14", new_name="Stem 2", new_id=101,
+                         id_offset=5000)
+
+
 def test_backup_writes_timestamped_copy(als_file):
     p = als_file()
     b = als.backup(str(p), op="test")
@@ -159,3 +179,19 @@ def test_backup_writes_timestamped_copy(als_file):
     assert bp.name.startswith(Path(p).stem + " [")
     assert bp.suffix == ".als"
     assert gzip.open(b, "rb").read() == gzip.open(str(p), "rb").read()
+
+
+def test_backup_same_second_collision_gets_distinct_paths(als_file):
+    """Two backup() calls within the same wall-clock second must not silently
+    overwrite each other. On collision, dedupe with a ` (n)` counter suffix
+    inside the Ableton-style stamp: `<stem> [YYYY-MM-DD HHMMSS] (2).als`."""
+    p = als_file()
+    b1 = als.backup(str(p), op="test")
+    b2 = als.backup(str(p), op="test")
+    from pathlib import Path
+    assert b1 != b2
+    assert Path(b1).exists()
+    assert Path(b2).exists()
+    src_bytes = gzip.open(str(p), "rb").read()
+    assert gzip.open(b1, "rb").read() == src_bytes
+    assert gzip.open(b2, "rb").read() == src_bytes
