@@ -119,6 +119,19 @@ The `--project engine` on pyright is required so it resolves `engine/.venv`
 committing, and bump `version` in `.claude-plugin/plugin.json` when behavior
 changes so the plugin cache refreshes.
 
-## License
+## More Ableton tools
 
-MIT. See [LICENSE](LICENSE).
+Other Ableton Live extensions I've built (native panels on the [Live Extensions
+SDK](https://www.ableton.com/en/live/extensions), separate from this Claude Code
+plugin):
+
+- **[AbleVSEP](https://github.com/madisonrickert/ablevsep):** Separate any audio
+  clip into stems with any of MVSEP's 100+ models, right inside Ableton Live. It
+  mirrors Live's built-in Stem Separation, but exposes MVSEP's full model catalog
+  instead of one fixed algorithm.
+- **[AbleTab](https://github.com/madisonrickert/abletab):** View any MIDI clip in
+  Ableton Live as stringed-instrument tablature. Pick an instrument preset or dial
+  in a custom tuning, then export PDF or ASCII tab.
+- **[Ableton Sheet Music Extension](https://github.com/madisonrickert/ableton-sheet-music-extension):**
+  View any MIDI clip in Ableton Live as readable sheet music. Transpose it for any
+  instrument and export MusicXML, PDF, or PNG.
