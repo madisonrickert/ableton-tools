@@ -44,9 +44,8 @@ def load_notes(path):
             if msg.type == "note_on" and msg.velocity > 0:
                 on.setdefault(msg.note, []).append(t)
             elif (
-                (msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0))
-                and on.get(msg.note)
-            ):
+                msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0)
+            ) and on.get(msg.note):
                 start = on[msg.note].pop(0)
                 notes.append(
                     {
