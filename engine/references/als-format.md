@@ -54,23 +54,24 @@ overwritten to `"2-0 Lead Vocals"`. To preserve `"<N>-<Stem>"`, set the
 clip's `<Name>` to the bare instrument label (`"Lead Vocals"`, not
 `"0 Lead Vocals"`) — the clip's display name need not match the filename.
 
-### Madison's track-color convention (apply to track + both clip `<Color>` tags)
-Source: her Jaron Smith Castratikron-cover project and 2021-06 Sonic Sundays
-live set.
+### Default track-color convention (apply to track + both clip `<Color>` tags)
+A suggested per-stem color mapping, drawn from real cover and live-set
+projects. Values are Ableton's Live 11 color-index integers. Override any of
+them via `als import-stems --colors`.
 
-| Stem            | Color | Source                                 |
-| --------------- | ----: | -------------------------------------- |
-| Lead Vocals     | 20    | Jaron: Lead Vox group                  |
-| Backing Vocals  | 7     | Jaron: Backup Vox group + 6 sub-tracks |
-| Drums           | 3     | Jaron: Drums group + MIDI              |
-| Bass            | 17    | Jaron: Bass                            |
-| Synth / Keys    | 14    | Sonic Sundays: SYNTH                   |
-| Other / FX      | 23    | Jaron: Choir/Strings (miscellaneous)   |
+| Stem            | Color |
+| --------------- | ----: |
+| Lead Vocals     | 20    |
+| Backing Vocals  | 7     |
+| Drums           | 3     |
+| Bass            | 17    |
+| Synth / Keys    | 14    |
+| Other / FX      | 23    |
 
 Apply by replacing every `<Color Value="N" />` inside each cloned track block
-(track-level + the two clip-level Colors). Madison's master has uniform
-Color on the track and both clips, so a global replace within the clone is
-the right pattern.
+(track-level + the two clip-level Colors). A freshly imported master usually
+has a uniform Color on the track and both clips, so a global replace within the
+clone is the right pattern.
 
 ### NextPointeeId
 `clone_track` bumps internal IDs and `<NextPointeeId>` automatically. The

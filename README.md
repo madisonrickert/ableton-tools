@@ -64,10 +64,10 @@ dispatcher supports.
 unless every stem's frame count and sample rate exactly match the master's.
 The clones inherit the master's warp markers verbatim, which is only valid
 when the audio timelines are identical; Suno stems satisfy this by
-construction, but other sources may not. Track coloring follows Madison's
-convention documented in `skills/als-files/SKILL.md` (override with
+construction, but other sources may not. Track coloring follows a default
+per-stem convention documented in `skills/als-files/SKILL.md` (override with
 `--colors`); the full XML-level mechanics (SampleRef fields, EffectiveName
-derivation, color table source) live in `engine/references/als-format.md`.
+derivation, color table) live in `engine/references/als-format.md`.
 
 ## Maintenance
 

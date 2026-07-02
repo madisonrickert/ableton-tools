@@ -1,19 +1,24 @@
-# Source-script provenance
+# Design provenance
 
-Where the logic of the original `_analysis/*.py` scripts from the
-"Come With Me to Polar Palooza" project landed in this toolkit.
+This toolkit began as a pile of one-off analysis scripts written to debug a
+single project whose exported stems drifted out of phase against their master.
+Consolidating those scripts into one library plus a single dispatcher is why the
+engine is shaped the way it is: each module is a cohesive slice of that original
+exploratory work, and each CLI subcommand is the polished form of a script that
+used to be run by hand.
 
-| Original script(s) | Landed in |
+## Module → capability
+
+| Module(s) | Subcommand |
 |---|---|
-| sibling_verify.py, sibling_verify_v2.py, sibling_verify_v3.py, cancel_test.py, cancel_demucs.py, per_window_corr.py, sanity.py | `cancel.py` + `align.py` → `stem-verify` |
-| drift_check.py, drift_fine.py, xcorr.py | `align.py` → `drift` |
-| tempo.py, tempo_drift.py, tempo_precise.py, audio_truth.py | `tempo.py` → `tempo` |
-| sax_to_midi.py | `transcribe.py` → `midi transcribe` |
-| midi_compare.py, midi_three_way.py, midi_chroma_xcorr.py, midi_anchors.py, midi_anchor_ableton.py, midi_diag.py | `midi.py` → `midi compare` |
-| rename.py, move_to_imported.py | `als.rename_refs` → `als rename` / `als move` |
-| warp_to_grid.py, grid_snap.py | `als.warp_to_grid`, `als.move_clip_to_beat` → `als warp-to-grid` / `als snap` |
-| add_track_and_rename.py, patch_timeline.py | `als.clone_track`, `als.move_clip_to_beat` primitives (not commands) |
+| `cancel.py` + `align.py` | `stem-verify` |
+| `align.py` | `drift` |
+| `tempo.py` | `tempo` |
+| `transcribe.py` | `midi transcribe` |
+| `midi.py` | `midi compare` |
+| `als.rename_refs` | `als rename` / `als move` |
+| `als.warp_to_grid`, `als.move_clip_to_beat` | `als warp-to-grid` / `als snap` |
+| `als.clone_track`, `als.move_clip_to_beat` | primitives (not commands) behind `als import-stems` |
 
-The mono-sum `.wav` artifacts those scripts produced are now built in memory by
-`audio.sum_stems`; process-management scripts (cancel_demucs/cancel_test) are
-covered by `stem-verify`.
+The mono-sum `.wav` artifacts the original scripts wrote to disk are now built
+in memory by `audio.sum_stems`.

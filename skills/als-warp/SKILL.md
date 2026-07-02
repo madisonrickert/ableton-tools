@@ -26,4 +26,4 @@ time→beat map and stems stay phase-coherent — unlike Ableton's auto-warp.
 Manifest `snaps.json`: `{"clip_name": {"beat": 7.0, "dur_s": 7.5, "bpm": 134}, ...}`,
 then `ableton als snap <FILE.als> --manifest snaps.json [--commit] --json`.
 
-Always show Madison the dry-run diff before committing.
+Always show the user the dry-run diff before committing.

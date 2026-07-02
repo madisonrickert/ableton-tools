@@ -4,8 +4,8 @@ description: Shared engine for the ableton-suite skills — a uv-managed Python 
 ---
 
 This skill is the engine behind the ableton-suite command skills. It bundles
-the reusable signal-processing and `.als`-editing logic distilled from the
-"Come With Me to Polar Palooza" project's analysis scripts.
+reusable signal-processing and `.als`-editing logic distilled from a set of
+one-off analysis scripts (see `engine/references/source-scripts.md`).
 
 ## Running the dispatcher
 
@@ -40,9 +40,9 @@ or the repo checkout (`~/Developer/claude-custom-skills/ableton-suite`).
 
 ## Verdicts are yours, not the tool's
 
-Per Madison's no-Anthropic-API rule, commands emit raw numbers plus threshold
-bands (e.g. `stem-verify` returns `worst_db`, `median_db`, and `bands`). Read
-the JSON and state the verdict yourself — no API call is built in.
+By design, commands emit raw numbers plus threshold bands (e.g. `stem-verify`
+returns `worst_db`, `median_db`, and `bands`). Read the JSON and state the
+verdict yourself — no LLM/API call is built in.
 
 ## Errors are structured
 

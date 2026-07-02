@@ -1,6 +1,6 @@
 """Import a folder of stems (e.g. Suno's) into a .als as clones of an
 already-warped master track. Owns the stem-import policy: label derivation,
-Madison's track-color convention, SampleRef repointing, tempo-leader
+the default track-color convention, SampleRef repointing, tempo-leader
 demotion. The generic XML primitives live in als.py.
 
 Invariant: every stem must match the master's frame count and sample rate;
@@ -17,9 +17,9 @@ from typing import Any
 from . import als
 from .errors import UsageError
 
-# Madison's track-color convention (Jaron Smith Castratikron cover +
-# 2021-06 Sonic Sundays live set). Keys are lowercase; lookup is exact
-# match first, then substring, then DEFAULT_COLOR.
+# Default per-stem track-color convention (Ableton Live 11 color indices),
+# drawn from real cover and live-set projects. Override via --colors. Keys are
+# lowercase; lookup is exact match first, then substring, then DEFAULT_COLOR.
 STEM_COLORS = {
     "lead vocals": 20,
     "backing vocals": 7,
