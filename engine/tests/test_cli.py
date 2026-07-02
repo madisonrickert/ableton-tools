@@ -90,6 +90,7 @@ def test_als_import_stems_dry_run(als_file, stem_project, capsys):
     # relocate the .als into the project dir so relative paths resolve
     target = project_dir / "proj.als"
     target.write_bytes(p.read_bytes())
+    before = target.read_bytes()
     rc = cli.main(["als", "import-stems", str(target),
                    "--master-track", "14", "--stems", str(project_dir / "suno-stems"),
                    "--json"])
@@ -97,7 +98,7 @@ def test_als_import_stems_dry_run(als_file, stem_project, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["dry_run"] is True
     assert len(out["diff"]["stems"]) == 2
-    assert target.read_bytes() == p.read_bytes()  # nothing written
+    assert target.read_bytes() == before  # nothing written
 
 
 def test_als_import_stems_rejects_mismatched_stems(als_file, stem_project, capsys):
