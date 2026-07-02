@@ -1,99 +1,109 @@
 # ableton-tools
 
-Ableton Live toolkit as a Claude Code plugin: stem verification, tempo/drift
-analysis, MIDI transcription and comparison, and safe `.als` editing (rename,
-warp-to-grid, and stem import), all driven through a single `ableton`
-dispatcher backed by a uv-managed Python engine.
+Give Claude Code a set of Ableton Live tools it can run for you: check whether
+a folder of stems really sums back to a master, find a project's true tempo and
+drift, transcribe an audio part to MIDI, and edit `.als` files safely (repoint
+samples, grid-lock warps, import stems in sync). Everything runs through one
+`ableton` dispatcher backed by a local, uv-managed Python engine.
+
+It started as a pile of one-off scripts for a single problem: exported stems
+that drifted out of phase against their master. It grew into a small toolkit
+for the fiddly, error-prone parts of working with `.als` projects, wrapped so
+Claude can drive it in plain language.
 
 Requires [uv](https://docs.astral.sh/uv/) (the engine runs under it) and
 `ffmpeg`/`ffprobe` on PATH for audio decoding.
 
 ## Install
 
-This repo is its own plugin marketplace (`.claude-plugin/marketplace.json` at
-the root). Add it, then install at user scope:
+This repo is its own plugin marketplace. Add it, then install at user scope:
 
 ```
 claude plugin marketplace add madisonrickert/ableton-tools
 claude plugin install ableton-tools@ableton-tools
 ```
 
-Verify with `/plugin` (should list `ableton-tools`) or by running
-`ableton manifest --json` in a session, which lists every subcommand the
-dispatcher supports.
+Verify with `/plugin` (it should list `ableton-tools`) or by asking Claude to
+run `ableton manifest --json`, which lists every subcommand.
+
+## In practice
+
+You work in Claude Code, not the terminal. Ask in plain language and the right
+skill runs the engine for you:
+
+- "Do these stems sum back to master.wav?" runs stem-verify: windowed
+  cancellation depth, correlation, and a sibling verdict.
+- "Import the Suno stems next to my warped master, color-coded and in sync."
+  runs als import-stems: one clone per stem, samples repointed, only the master
+  left as tempo leader.
+- "This project points at the old sample folder; repoint it to Samples/Imported."
+  dry-runs the als rename diff, then commits with an automatic backup.
+
+Every `.als` edit is previewed before anything is written. Close Ableton while
+committing one.
 
 ## Skills
 
-| Skill | Invocation | What it does |
+Each row is a skill Claude invokes for you; the command is what it runs under
+the hood.
+
+| Skill | Runs | What it does |
 |---|---|---|
 | als-files | `ableton als inspect \| rename \| move \| import-stems` | Inspect a `.als` project (tempo, tracks, clips, refs) and safely rename/move the audio it references, or import a folder of stems as color-coded clones of a warped master track. |
 | als-warp | `ableton als warp-to-grid` | Grid-lock clips to a fixed project tempo with two warp markers each, so stems stay phase-coherent. |
-| engine | `ableton <subcommand> [--json]` | Shared dispatcher and library behind all the other skills; use directly for a raw subcommand or when `ableton` cannot be found. |
 | midi-compare | `ableton midi compare` | Compare two or three MIDI files by harmonic content (chroma cosine) and timing drift. |
 | midi-transcribe | `ableton midi transcribe` | Transcribe an audio stem to MIDI via Spotify basic-pitch, tuned for monophonic/lightly polyphonic leads. |
 | stem-verify | `ableton stem-verify` | Verify whether a folder of stems sums back to a given master (a "sibling" check). |
 | tempo-drift | `ableton tempo \| drift` | Detect a file's tempo (beat-tracked, precise, and drift) and measure time drift between a master and its stems-sum. |
+| engine | `ableton <subcommand> [--json]` | The shared dispatcher and library behind the others; use directly for a raw subcommand or when `ableton` cannot be found. |
 
-## Architecture invariants
+## Safety
 
-- **Regex-over-raw-XML patching.** `.als` mutations use targeted regex against
-  the decompressed XML to preserve the original file's formatting exactly.
-  Never rewrite this to a DOM library (lxml, ElementTree for writes): that
-  would reformat the whole file and blow up diffs in Ableton's own history.
-  `inspect` (read-only) uses ElementTree, which is fine since it never writes.
-- **Dry-run by default.** Every mutating `als` command writes nothing unless
-  passed `--commit`. On commit, the engine first writes a backup to
-  `<project>/Backup/<basename> [YYYY-MM-DD HHMMSS].als` (Ableton's own
-  auto-backup convention, so it shows up in Live's rollback UI), patches
-  refs, then re-verifies every reference resolves, auto-restoring from
-  backup if any break.
-- **Verdicts belong to the operator, no API calls.** Tools like `stem-verify`
-  and `midi compare` emit numbers (`worst_db`, `chroma_cosine`, drift
-  stats); the skill's job is to report them and state a verdict, not to call
-  out to an LLM API for judgment. No `ANTHROPIC_API_KEY` or equivalent is
-  designed into this engine.
-- **Structured failures.** Usage problems raise `UsageError` and render as
-  `{"error": "...", "hint": "..."}` on stderr with a nonzero exit (2 for
-  usage errors, 3 for missing files). An unhandled traceback means an engine
-  bug, not a usage mistake.
-- **`transcribe` extra installs on demand.** The default environment stays
-  light; `ableton midi transcribe` is the only invocation that pulls in
-  basic-pitch/TensorFlow, added via `uv run --extra transcribe` only for
-  that subcommand.
+`.als` files are your projects, so the engine treats them carefully.
 
-### Stem import
+- **Nothing is written without a preview.** Every mutating `als` command is
+  dry-run by default and only writes with `--commit`. On commit it first saves
+  a backup to `<project>/Backup/<basename> [YYYY-MM-DD HHMMSS].als` (Ableton's
+  own auto-backup convention, so it appears in Live's rollback UI), then
+  re-verifies every sample reference and auto-restores from the backup if any
+  break.
+- **Edits preserve your file's formatting.** Mutations patch the decompressed
+  XML in place with targeted regex rather than re-serializing through a DOM, so
+  diffs stay small and Ableton's own version history is not disturbed.
+- **It runs locally, with no API keys.** Analysis commands emit raw numbers and
+  threshold bands (`worst_db`, `chroma_cosine`, drift stats); reading them and
+  stating a verdict is the skill's job, not an external service's.
+- **Failures are legible.** Usage problems exit nonzero with
+  `{"error": "...", "hint": "..."}`; a traceback means a bug, not a mistake you
+  made.
+- **The heavy transcription dependency is opt-in.** Only `ableton midi
+  transcribe` pulls in basic-pitch/TensorFlow, added on demand so the default
+  environment stays light.
 
-`als import-stems` refuses to run (structured error, no partial writes)
-unless every stem's frame count and sample rate exactly match the master's.
-The clones inherit the master's warp markers verbatim, which is only valid
-when the audio timelines are identical; Suno stems satisfy this by
-construction, but other sources may not. Track coloring follows a default
-per-stem convention documented in `skills/als-files/SKILL.md` (override with
-`--colors`); the full XML-level mechanics (SampleRef fields, EffectiveName
+## Stem import
+
+`als import-stems` refuses to run (structured error, no partial writes) unless
+every stem's frame count and sample rate exactly match the master's: the clones
+inherit the master's warp markers verbatim, which is only valid when the audio
+timelines are identical. Suno stems satisfy this by construction; other sources
+may not. Track coloring follows a default per-stem convention (override with
+`--colors`); the full XML mechanics (SampleRef fields, EffectiveName
 derivation, color table) live in `engine/references/als-format.md`.
 
-## Maintenance
+## Development
 
-- Bump `version` in `.claude-plugin/plugin.json` whenever skill or engine
-  behavior changes, so the plugin cache refreshes on next install.
-- Run `claude plugin validate .` before committing (the repo root is both the
-  plugin and its marketplace).
-- Dev loop, from the repo root:
+From the repo root:
 
-  ```
-  uv run --project engine --group dev pytest
-  uvx ruff check engine
-  uvx pyright --project engine engine/src
-  ```
+```
+uv run --project engine --group dev pytest
+uvx ruff check engine
+uvx pyright --project engine engine/src
+```
 
-  Note the explicit `--project engine` on the pyright invocation:
-  `engine/pyproject.toml` sets `venvPath = "."` (relative to the config
-  file), and pyright only resolves that correctly once it knows where the
-  config lives. Running `uvx pyright engine/src` from the repo root without
-  `--project` leaves pyright to auto-discover the config relative to the
-  invocation cwd instead, so it can't find `engine/.venv` and reports
-  spurious `reportMissingImports` errors on every third-party dependency
-  (numpy, scipy, soundfile, mido, librosa).
+The `--project engine` on pyright is required so it resolves `engine/.venv`
+(`engine/CLAUDE.md` explains why). Run `claude plugin validate .` before
+committing, and bump `version` in `.claude-plugin/plugin.json` when behavior
+changes so the plugin cache refreshes.
 
 ## License
 

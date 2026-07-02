@@ -77,3 +77,15 @@ Usage failures: exit code 2 (3 for missing files), stderr
   re-verify with auto-restore on breakage.
 - `ffmpeg`/`ffprobe` are detected at runtime; a missing binary fails with a hint.
 - Close Ableton before committing `.als` edits.
+
+## Development
+Dev loop from the repo root: `uv run --project engine --group dev pytest`,
+`uvx ruff check engine`, `uvx pyright --project engine engine/src`.
+
+The `--project engine` on pyright is load-bearing. `engine/pyproject.toml`
+sets `venvPath = "."` relative to the config file, and pyright resolves that
+only once it knows where the config lives. Running `uvx pyright engine/src`
+without `--project` makes pyright auto-discover the config relative to the
+invocation cwd, so it cannot find `engine/.venv` and reports spurious
+`reportMissingImports` errors on every third-party dependency (numpy, scipy,
+soundfile, mido, librosa).
