@@ -1,5 +1,6 @@
 import json
 import numpy as np
+import pytest
 import soundfile as sf
 from ableton_tools import cli
 from conftest import STEM_ALS
@@ -115,3 +116,35 @@ def test_als_import_stems_rejects_mismatched_stems(als_file, stem_project, capsy
     assert rc != 0
     err = json.loads(capsys.readouterr().err)
     assert "2 Bass.wav" in err["error"] or "2 Bass.wav" in (err["hint"] or "")
+
+
+def test_manifest_includes_nested_subcommands_and_args(capsys):
+    rc = cli.main(["manifest", "--json"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out)
+    als_entry = next(c for c in data["subcommands"] if c["name"] == "als")
+    subs = {s["name"] for s in als_entry["subcommands"]}
+    assert {"inspect", "rename", "move", "warp-to-grid", "move-clip",
+            "snap", "import-stems"} <= subs
+    ims = next(s for s in als_entry["subcommands"] if s["name"] == "import-stems")
+    argnames = {a["name"] for a in ims["args"]}
+    assert {"--master-track", "--stems", "--commit"} <= argnames
+
+
+def test_global_json_flag_position(als_file, capsys):
+    rc = cli.main(["--json", "als", "inspect", str(als_file())])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["tempo"] == 120.0
+
+
+def test_version_flag(capsys):
+    with pytest.raises(SystemExit) as ex:
+        cli.main(["--version"])
+    assert ex.value.code == 0
+    assert "0.2" in capsys.readouterr().out
+
+
+def test_help_subcommand(capsys):
+    rc = cli.main(["help"])
+    assert rc == 0
+    assert "manifest" in capsys.readouterr().out

@@ -7,13 +7,74 @@ import sys
 
 from .errors import UsageError
 
-SUBCOMMANDS = [
-    {"name": "stem-verify", "desc": "Measure whether a stems folder sums to a master."},
-    {"name": "tempo", "desc": "Detect tempo, sub-ms precision, and drift of an audio file."},
-    {"name": "drift", "desc": "Measure time drift between a master and its stems-sum."},
-    {"name": "midi", "desc": "MIDI tools: `transcribe` audio->MIDI, `compare` MIDI files."},
-    {"name": "als", "desc": "Inspect/edit a .als: inspect, rename, move, warp-to-grid, move-clip, snap, import-stems."},
-    {"name": "manifest", "desc": "List all subcommands (this command)."},
+def _arg(name, *, required=False, default=None, help="", type=None,
+         action=None):
+    return {"name": name, "required": required, "default": default,
+            "help": help, "type": type, "action": action}
+
+
+_COMMIT = _arg("--commit", action="store_true", help="write (default: dry-run)")
+_JSON = _arg("--json", action="store_true", help="JSON output")
+
+# Single source of truth: drives both build_parser() and `manifest --json`, so
+# the CLI surface and its self-description can never drift.
+SPEC = [
+    {"name": "manifest", "desc": "List all subcommands (this command).",
+     "args": [_JSON]},
+    {"name": "stem-verify",
+     "desc": "Measure whether a stems folder sums to a master.",
+     "args": [_arg("--stems", required=True), _arg("--master", required=True),
+              _arg("--win", type=float, default=10.0),
+              _arg("--max-lag-ms", type=float, default=200.0),
+              _arg("--pattern", default="*.wav"), _JSON]},
+    {"name": "tempo",
+     "desc": "Detect tempo, sub-ms precision, and drift of an audio file.",
+     "args": [_arg("file", required=True),
+              _arg("--hint-bpm", type=float, default=None), _JSON]},
+    {"name": "drift",
+     "desc": "Measure time drift between a master and its stems-sum.",
+     "args": [_arg("--master", required=True), _arg("--stems", required=True),
+              _arg("--win", type=float, default=10.0),
+              _arg("--pattern", default="*.wav"), _JSON]},
+    {"name": "midi", "desc": "MIDI tools.", "subcommands": [
+        {"name": "transcribe", "desc": "Audio -> MIDI via basic-pitch.",
+         "args": [_arg("audio", required=True),
+                  _arg("--out", default=None), _JSON]},
+        {"name": "compare", "desc": "Chroma similarity + timing drift.",
+         "args": [_arg("files", required=True, help="2-3 MIDI files"), _JSON]},
+    ]},
+    {"name": "als", "desc": "Inspect/edit a .als.", "subcommands": [
+        {"name": "inspect", "desc": "Tempo, tracks, clips, refs as JSON.",
+         "args": [_arg("als", required=True), _JSON]},
+        {"name": "rename", "desc": "Patch file references per manifest.",
+         "args": [_arg("als", required=True),
+                  _arg("--manifest", required=True), _COMMIT, _JSON]},
+        {"name": "move", "desc": "Alias of rename.",
+         "args": [_arg("als", required=True),
+                  _arg("--manifest", required=True), _COMMIT, _JSON]},
+        {"name": "warp-to-grid", "desc": "Grid-lock clips at a fixed tempo.",
+         "args": [_arg("als", required=True),
+                  _arg("--tempo", required=True, type=float),
+                  _arg("--clips", required=True), _COMMIT, _JSON]},
+        {"name": "move-clip", "desc": "Move one clip to an exact beat.",
+         "args": [_arg("als", required=True), _arg("--clip", required=True),
+                  _arg("--to-beat", required=True, type=float),
+                  _arg("--dur-s", required=True, type=float),
+                  _arg("--bpm", required=True, type=float), _COMMIT, _JSON]},
+        {"name": "snap", "desc": "Batch clip repositioning per manifest.",
+         "args": [_arg("als", required=True),
+                  _arg("--manifest", required=True), _COMMIT, _JSON]},
+        {"name": "import-stems",
+         "desc": "Clone a warped master track per stem file and relink.",
+         "args": [_arg("als", required=True),
+                  _arg("--master-track", required=True,
+                       help="master AudioTrack Id or EffectiveName"),
+                  _arg("--stems", required=True),
+                  _arg("--pattern", default="*.wav"),
+                  _arg("--colors", default=None,
+                       help="JSON {label: color_int} overriding the built-in map"),
+                  _COMMIT, _JSON]},
+    ]},
 ]
 
 
@@ -24,8 +85,19 @@ def _emit(obj, as_json, human):
         human(obj)
 
 
+def _manifest_entry(c):
+    out = {"name": c["name"], "desc": c.get("desc", "")}
+    if "args" in c:
+        out["args"] = [{k: a[k] for k in ("name", "required", "default", "help")}
+                       for a in c["args"]]
+    if "subcommands" in c:
+        out["subcommands"] = [_manifest_entry(s) for s in c["subcommands"]]
+    return out
+
+
 def _cmd_manifest(args):
-    _emit({"subcommands": SUBCOMMANDS}, args.json,
+    entries = [_manifest_entry(c) for c in SPEC]
+    _emit({"subcommands": entries}, args.json,
           lambda o: [print(f"{c['name']:14} {c['desc']}") for c in o["subcommands"]])
     return 0
 
@@ -185,71 +257,48 @@ def _cmd_als(args):
     return 0
 
 
+def _add_arg(parser, a):
+    """Translate one SPEC arg dict into an argparse add_argument call."""
+    name = a["name"]
+    kwargs = {}
+    if a.get("help"):
+        kwargs["help"] = a["help"]
+    if a.get("action"):
+        kwargs["action"] = a["action"]
+    else:
+        if a.get("type") is not None:
+            kwargs["type"] = a["type"]
+        kwargs["default"] = a.get("default")
+    if name.startswith("-"):  # optional flag
+        if a.get("required") and not a.get("action"):
+            kwargs["required"] = True
+    elif name == "files":  # variadic positional
+        kwargs["nargs"] = "+"
+    parser.add_argument(name, **kwargs)
+
+
 def build_parser():
+    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+    try:
+        _v = _pkg_version("ableton-tools")
+    except PackageNotFoundError:
+        _v = "unknown"
     p = argparse.ArgumentParser(prog="ableton", description="Ableton project tools")
+    p.add_argument("--version", action="version", version=f"ableton {_v}")
     sub = p.add_subparsers(dest="cmd", required=True)
-
-    sub.add_parser("manifest").add_argument("--json", action="store_true")
-
-    sv = sub.add_parser("stem-verify")
-    sv.add_argument("--stems", required=True)
-    sv.add_argument("--master", required=True)
-    sv.add_argument("--win", type=float, default=10.0)
-    sv.add_argument("--max-lag-ms", type=float, default=200.0)
-    sv.add_argument("--pattern", default="*.wav")
-    sv.add_argument("--json", action="store_true")
-
-    tp = sub.add_parser("tempo")
-    tp.add_argument("file")
-    tp.add_argument("--hint-bpm", type=float, default=None)
-    tp.add_argument("--json", action="store_true")
-
-    dr = sub.add_parser("drift")
-    dr.add_argument("--master", required=True)
-    dr.add_argument("--stems", required=True)
-    dr.add_argument("--win", type=float, default=10.0)
-    dr.add_argument("--pattern", default="*.wav")
-    dr.add_argument("--json", action="store_true")
-
-    md = sub.add_parser("midi")
-    mdsub = md.add_subparsers(dest="midi_cmd", required=True)
-    tr = mdsub.add_parser("transcribe")
-    tr.add_argument("audio")
-    tr.add_argument("--out", default=None)
-    tr.add_argument("--json", action="store_true")
-    cmp = mdsub.add_parser("compare")
-    cmp.add_argument("files", nargs="+")
-    cmp.add_argument("--json", action="store_true")
-
-    al = sub.add_parser("als")
-    alsub = al.add_subparsers(dest="als_cmd", required=True)
-    insp = alsub.add_parser("inspect"); insp.add_argument("als"); insp.add_argument("--json", action="store_true")
-    for nm in ("rename", "move"):
-        sp = alsub.add_parser(nm)
-        sp.add_argument("als"); sp.add_argument("--manifest", required=True)
-        sp.add_argument("--commit", action="store_true"); sp.add_argument("--json", action="store_true")
-    w = alsub.add_parser("warp-to-grid")
-    w.add_argument("als"); w.add_argument("--tempo", type=float, required=True)
-    w.add_argument("--clips", required=True)
-    w.add_argument("--commit", action="store_true"); w.add_argument("--json", action="store_true")
-    mc = alsub.add_parser("move-clip")
-    mc.add_argument("als"); mc.add_argument("--clip", required=True)
-    mc.add_argument("--to-beat", type=float, required=True); mc.add_argument("--dur-s", type=float, required=True)
-    mc.add_argument("--bpm", type=float, required=True)
-    mc.add_argument("--commit", action="store_true"); mc.add_argument("--json", action="store_true")
-    sn = alsub.add_parser("snap")
-    sn.add_argument("als"); sn.add_argument("--manifest", required=True)
-    sn.add_argument("--commit", action="store_true"); sn.add_argument("--json", action="store_true")
-    ims = alsub.add_parser("import-stems")
-    ims.add_argument("als")
-    ims.add_argument("--master-track", required=True,
-                     help="master AudioTrack Id, or its EffectiveName")
-    ims.add_argument("--stems", required=True, help="directory of stem files")
-    ims.add_argument("--pattern", default="*.wav")
-    ims.add_argument("--colors", default=None,
-                     help="JSON file {label: color_int} overriding the built-in map")
-    ims.add_argument("--commit", action="store_true")
-    ims.add_argument("--json", action="store_true")
+    for entry in SPEC:
+        sp = sub.add_parser(entry["name"], help=entry.get("desc", ""),
+                            description=entry.get("desc", ""))
+        if "subcommands" in entry:
+            nsub = sp.add_subparsers(dest=f"{entry['name']}_cmd", required=True)
+            for child in entry["subcommands"]:
+                csp = nsub.add_parser(child["name"], help=child.get("desc", ""),
+                                      description=child.get("desc", ""))
+                for a in child.get("args", []):
+                    _add_arg(csp, a)
+        else:
+            for a in entry.get("args", []):
+                _add_arg(sp, a)
     return p
 
 
@@ -265,17 +314,25 @@ DISPATCH = {
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = build_parser()
-    if argv and argv[0] not in DISPATCH:
+    if argv[:1] == ["help"]:
+        rest = argv[1:]
+        if rest:
+            argv = rest + ["--help"]  # argparse prints sub-help, SystemExit(0)
+        else:
+            build_parser().print_help()
+            return 0
+    global_json = "--json" in argv
+    if global_json:
+        argv = [a for a in argv if a != "--json"]
+    if argv and not argv[0].startswith("-") and argv[0] not in DISPATCH:
         sys.stderr.write(
             f"Unknown subcommand {argv[0]!r}. Valid: {', '.join(DISPATCH)}. "
             "Run `ableton manifest` for descriptions.\n"
         )
         return 2
+    parser = build_parser()
     args = parser.parse_args(argv)
-    # default args.json to False if a subcommand lacked the flag path
-    if not hasattr(args, "json"):
-        args.json = False
+    args.json = getattr(args, "json", False) or global_json
     try:
         return DISPATCH[args.cmd](args)
     except UsageError as e:
