@@ -94,3 +94,7 @@ derivation, color table) live in `engine/references/als-format.md`.
   invocation cwd instead, so it can't find `engine/.venv` and reports
   spurious `reportMissingImports` errors on every third-party dependency
   (numpy, scipy, soundfile, mido, librosa).
+
+## License
+
+MIT. See [LICENSE](LICENSE).

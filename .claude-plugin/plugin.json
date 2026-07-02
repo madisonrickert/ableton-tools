@@ -4,5 +4,19 @@
   "version": "1.0.0",
   "author": {
     "name": "Madison Rickert"
-  }
+  },
+  "homepage": "https://github.com/madisonrickert/ableton-tools",
+  "repository": "https://github.com/madisonrickert/ableton-tools",
+  "license": "MIT",
+  "keywords": [
+    "ableton",
+    "ableton-live",
+    "als",
+    "audio",
+    "midi",
+    "stems",
+    "music-production",
+    "claude-code",
+    "claude-plugin"
+  ]
 }
