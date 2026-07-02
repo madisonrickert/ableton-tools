@@ -98,13 +98,20 @@ def inspect(path):
 
 
 def set_tempo(xml, bpm):
-    """Set the master tempo Manual Value."""
-    return re.sub(
+    """Set the MasterTrack's tempo Manual Value (project tempo). Anchored to
+    the MasterTrack block so a tempo-bearing device elsewhere is never hit."""
+    m = re.search(r"<MasterTrack>.*?</MasterTrack>", xml, re.DOTALL)
+    if not m:
+        raise ValueError("No <MasterTrack> block found in document")
+    block, n = re.subn(
         r'(<Tempo>\s*<Manual Value=")[\d.]+(")',
         rf"\g<1>{bpm:g}\g<2>",
-        xml,
+        m.group(0),
         count=1,
     )
+    if n == 0:
+        raise ValueError("MasterTrack has no <Tempo><Manual> element to set")
+    return xml[: m.start()] + block + xml[m.end():]
 
 
 def rename_refs(xml, mapping):

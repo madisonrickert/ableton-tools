@@ -216,3 +216,13 @@ def test_warp_to_grid_errors_on_missing_warpmarkers(als_file):
     xml = re.sub(r"<WarpMarkers>.*?</WarpMarkers>\n?", "", xml, flags=re.DOTALL)
     with pytest.raises(ValueError, match="bass_clip"):
         als.warp_to_grid(xml, ["bass_clip"], bpm=120.0, durations={"bass_clip": 8.0})
+
+
+def test_set_tempo_targets_master_track_not_first_tempo(als_file):
+    xml = als.read_als(str(als_file()))
+    # Plant a decoy <Tempo> block earlier in the document than MasterTrack's.
+    decoy = "<Tempo>\n<Manual Value=\"99\"/>\n</Tempo>\n"
+    xml = xml.replace("<Tracks>", "<Tracks>\n" + decoy, 1)
+    out = als.set_tempo(xml, 134.0)
+    assert '<Manual Value="99"/>' in out          # decoy untouched
+    assert als.inspect_xml(out)["tempo"] == 134.0  # master tempo changed
