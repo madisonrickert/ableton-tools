@@ -1,11 +1,16 @@
 ---
 name: tempo-drift
-description: Detect the tempo of an audio file (beat-tracked BPM, sub-millisecond precise BPM, and real tempo drift via inter-beat-interval regression), and measure time drift between a master and its stems-sum. Use when matching a stem's tempo map to a master, choosing a project BPM, or diagnosing why warped stems slip out of phase.
+description: Detect the tempo of an audio file (beat-tracked BPM, sub-millisecond precise BPM, and real tempo drift via inter-beat-interval regression), and measure time drift between a master and its stems-sum. Use when matching a stem's tempo map to a master, choosing a project BPM, or diagnosing why warped stems slip out of phase. Experimental; not benchmarked against Ableton's own tempo/warp analysis.
 ---
 
 You analyze tempo and drift using the bundled Ableton engine (the `ableton`
 command on PATH; see the `engine` skill for the full command reference and
 fallback paths).
+
+**Experimental.** This tempo detection has not been benchmarked against
+Ableton's own tempo and warp analysis and is not verified to be more accurate.
+Use it as a starting estimate to confirm, not as ground truth, and say so when
+you report a number.
 
 ## Tempo of one file
 `ableton tempo <FILE> [--hint-bpm N] --json`

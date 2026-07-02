@@ -15,13 +15,16 @@ yields the XML. Re-gzip to save (`als.write_als`). Live reads any gzip level.
   - `WarpMarkers > WarpMarker[SecTime, BeatTime]` — map file seconds to beats.
   - `IsWarped[Value]` — whether the clip follows the project tempo.
 
-## Two-marker warp strategy
+## Two-marker warp strategy (experimental)
 
-Ableton's auto-warp scatters many markers per clip, which lets stems drift
-relative to each other. Locking each clip to exactly two markers — `(SecTime 0,
-BeatTime 0)` and `(SecTime file_duration, BeatTime duration*bpm/60)` — at a
-single fixed project tempo keeps every clip on the same linear time→beat map, so
-inter-clip phase coherence is preserved. This is what `als warp-to-grid` does.
+The idea behind `als warp-to-grid`: give each clip exactly two markers,
+`(SecTime 0, BeatTime 0)` and `(SecTime file_duration, BeatTime duration*bpm/60)`,
+at a single fixed project tempo, so every clip shares one linear time→beat map,
+intended to preserve inter-clip phase coherence. This is a different approach
+from Ableton's auto-warp (which places many markers per clip); it is
+experimental and not verified to outperform auto-warp. The primary
+stem-alignment path in this toolkit is instead `als import-stems`, which clones
+a master's existing warp (including an Ableton auto-warp) onto each stem.
 
 ## Beats vs seconds
 

@@ -1,12 +1,17 @@
 ---
 name: midi-transcribe
-description: Transcribe an audio stem (e.g. an isolated sax or synth line) to a MIDI file using Spotify basic-pitch with tuned parameters. Use when you need a MIDI version of a monophonic or lightly polyphonic audio part to edit in Ableton.
+description: Transcribe an audio stem (e.g. an isolated sax or synth line) to a MIDI file using Spotify basic-pitch with tuned parameters. Use when you need a MIDI version of a monophonic or lightly polyphonic audio part to edit in Ableton. Experimental; not benchmarked against Ableton's built-in audio-to-MIDI.
 ---
 
 You transcribe audio to MIDI using the bundled Ableton engine (the `ableton`
 command on PATH; see the `engine` skill for the full command reference and
 fallback paths). The heavy basic-pitch dependency is installed on demand by
 the dispatcher — no setup needed.
+
+**Experimental.** This uses Spotify basic-pitch. It has not been benchmarked
+against Ableton's built-in audio-to-MIDI conversion and is not verified to do
+better; treat the output as a rough starting point to correct by ear. Tell the
+user this when you produce a transcription.
 
 ## Invoke
 `ableton midi transcribe <AUDIO> [--out <OUT.mid>] --json`

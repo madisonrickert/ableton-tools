@@ -14,6 +14,20 @@ Claude can drive it in plain language.
 Requires [uv](https://docs.astral.sh/uv/) (the engine runs under it) and
 `ffmpeg`/`ffprobe` on PATH for audio decoding.
 
+## Status
+
+The mainstay is **stem alignment**: let Ableton auto-warp a master (a Suno
+render, say), then have `als import-stems` clone that warped master onto each
+stem so they all line up with it. That, plus `.als` re-linking and stem
+verification, is the solid core, and it complements Ableton rather than
+replacing it.
+
+`midi-transcribe` and the tempo/grid-warp features (`tempo-drift`, `als-warp`)
+are **experimental**: they overlap with Ableton's own audio-to-MIDI and
+auto-warp, have not been benchmarked against those built-ins, and are not
+verified to do better. Treat their output as a starting point to check by ear
+or eye, not a replacement.
+
 ## Install
 
 This repo is its own plugin marketplace. Add it, then install at user scope:
@@ -31,11 +45,11 @@ run `ableton manifest --json`, which lists every subcommand.
 You work in Claude Code, not the terminal. Ask in plain language and the right
 skill runs the engine for you:
 
+- "I auto-warped the Suno master in Ableton; align the matching stems to it,
+  color-coded." runs als import-stems: one clone of the warped master per stem,
+  samples repointed, only the master kept as tempo leader.
 - "Do these stems sum back to master.wav?" runs stem-verify: windowed
   cancellation depth, correlation, and a sibling verdict.
-- "Import the Suno stems next to my warped master, color-coded and in sync."
-  runs als import-stems: one clone per stem, samples repointed, only the master
-  left as tempo leader.
 - "This project points at the old sample folder; repoint it to Samples/Imported."
   dry-runs the als rename diff, then commits with an automatic backup.
 

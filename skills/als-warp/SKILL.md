@@ -17,7 +17,15 @@ reference and fallback paths). **Close Ableton before committing edits.**
 
 This sets the project tempo and gives each clip exactly two warp markers
 (sec 0→beat 0, sec duration→end beat), so every clip shares one linear
-time→beat map and stems stay phase-coherent — unlike Ableton's auto-warp.
+time→beat map, aiming to keep stems phase-coherent.
+
+**Experimental.** The two-marker strategy is a different approach from
+Ableton's auto-warp, not a proven improvement on it: it has not been
+benchmarked against auto-warp and is not verified to do better. For aligning
+Suno-style stems, the more reliable path is usually to let Ableton auto-warp
+the master, then use the `als-files` import-stems feature to clone that warped
+master onto each stem. Show the user the dry-run diff and have them check the
+result.
 
 ## Reposition a single clip to a beat
 `ableton als move-clip <FILE.als> --clip NAME --to-beat 7.0 --dur-s 7.5 --bpm 134 [--commit] --json`
