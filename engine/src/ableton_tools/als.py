@@ -11,6 +11,8 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from .errors import UsageError
+
 
 def read_als(path):
     """Return the decompressed XML text of a .als file."""
@@ -102,7 +104,7 @@ def set_tempo(xml, bpm):
     the MasterTrack block so a tempo-bearing device elsewhere is never hit."""
     m = re.search(r"<MasterTrack>.*?</MasterTrack>", xml, re.DOTALL)
     if not m:
-        raise ValueError("No <MasterTrack> block found in document")
+        raise UsageError("No <MasterTrack> block found in document")
     block, n = re.subn(
         r'(<Tempo>\s*<Manual Value=")[\d.]+(")',
         rf"\g<1>{bpm:g}\g<2>",
@@ -110,7 +112,7 @@ def set_tempo(xml, bpm):
         count=1,
     )
     if n == 0:
-        raise ValueError("MasterTrack has no <Tempo><Manual> element to set")
+        raise UsageError("MasterTrack has no <Tempo><Manual> element to set")
     return xml[: m.start()] + block + xml[m.end():]
 
 
@@ -149,11 +151,14 @@ def _clip_block(xml, clip_name):
         if re.search(rf'<Name Value="{re.escape(clip_name)}"', m.group(0)):
             hits.append((m.start(), m.end()))
     if not hits:
-        raise KeyError(f"AudioClip named {clip_name!r} not found")
+        raise UsageError(
+            f"AudioClip named {clip_name!r} not found",
+            hint="run `ableton als inspect FILE.als --json` to list clip names")
     if len(hits) > 1:
-        raise KeyError(
+        raise UsageError(
             f"AudioClip name {clip_name!r} is ambiguous ({len(hits)} matches); "
-            "rename one clip or address it by a unique name")
+            "rename one clip or address it by a unique name",
+            hint="run `ableton als inspect FILE.als --json` to list clip names")
     return hits[0]
 
 
@@ -195,9 +200,10 @@ def warp_to_grid(xml, clip_names, bpm, durations):
         block, n_replaced = re.subn(
             r"<WarpMarkers>.*?</WarpMarkers>", markers, block, flags=re.DOTALL)
         if n_replaced == 0:
-            raise ValueError(
+            raise UsageError(
                 f"Clip {name!r} has no <WarpMarkers> block to replace; "
-                "cannot grid-lock it")
+                "cannot grid-lock it",
+                hint="only previously-warped audio clips can be grid-locked")
         if "<IsWarped" in block:
             block = re.sub(r'<IsWarped Value="(true|false)"/>',
                            '<IsWarped Value="true"/>', block)
@@ -225,7 +231,9 @@ def _find_track_block(xml, src_track_id):
     open_re = re.compile(rf'<(\w+)Track\s+Id="{src_track_id}"[^>]*>')
     m = open_re.search(xml)
     if not m:
-        raise KeyError(f"Track Id {src_track_id} not found")
+        raise UsageError(
+            f"Track Id {src_track_id} not found",
+            hint="run `ableton als inspect FILE.als --json` to list track ids")
     tag = m.group(1)
     end = xml.find(f"</{tag}Track>", m.end())
     if end < 0:

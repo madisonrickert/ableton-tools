@@ -54,3 +54,30 @@ def test_unknown_subcommand_fails_loud(capsys):
     assert rc != 0
     err = capsys.readouterr().err
     assert "manifest" in err.lower()
+
+
+def test_missing_als_file_emits_structured_error(capsys):
+    rc = cli.main(["als", "inspect", "/nonexistent/nope.als", "--json"])
+    assert rc != 0
+    err = json.loads(capsys.readouterr().err)
+    assert "error" in err and "hint" in err
+
+
+def test_unknown_clip_emits_structured_error(als_file, capsys):
+    p = als_file()
+    rc = cli.main(["als", "move-clip", str(p), "--clip", "no_such_clip",
+                   "--to-beat", "4", "--dur-s", "7.5", "--bpm", "120", "--json"])
+    assert rc != 0
+    err = json.loads(capsys.readouterr().err)
+    assert "no_such_clip" in err["error"]
+    assert "inspect" in err["hint"]
+
+
+def test_broken_manifest_json_emits_structured_error(als_file, tmp_path, capsys):
+    p = als_file()
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    rc = cli.main(["als", "rename", str(p), "--manifest", str(bad), "--json"])
+    assert rc != 0
+    err = json.loads(capsys.readouterr().err)
+    assert "bad.json" in err["error"]

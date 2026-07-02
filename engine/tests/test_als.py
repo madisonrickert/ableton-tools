@@ -2,6 +2,7 @@ import gzip
 import re
 import pytest
 from ableton_tools import als
+from ableton_tools.errors import UsageError
 
 
 def test_read_write_roundtrip(als_file):
@@ -214,7 +215,7 @@ def test_rename_refs_only_touches_path_tags(als_file):
 def test_warp_to_grid_errors_on_missing_warpmarkers(als_file):
     xml = als.read_als(str(als_file()))
     xml = re.sub(r"<WarpMarkers>.*?</WarpMarkers>\n?", "", xml, flags=re.DOTALL)
-    with pytest.raises(ValueError, match="bass_clip"):
+    with pytest.raises(UsageError, match="bass_clip"):
         als.warp_to_grid(xml, ["bass_clip"], bpm=120.0, durations={"bass_clip": 8.0})
 
 
@@ -233,7 +234,7 @@ def test_clip_block_rejects_ambiguous_name(als_file):
     m = re.search(r"<AudioClip\b.*?</AudioClip>", xml, re.DOTALL)
     twin = m.group(0).replace('Id="0"', 'Id="7"', 1)
     xml_dup = xml[: m.end()] + "\n" + twin + xml[m.end():]
-    with pytest.raises(KeyError, match="[Aa]mbiguous"):
+    with pytest.raises(UsageError, match="[Aa]mbiguous"):
         als.move_clip_to_beat(xml_dup, "bass_clip", beat=8.0, dur_s=7.5, bpm=120.0)
 
 

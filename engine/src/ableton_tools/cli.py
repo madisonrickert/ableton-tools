@@ -5,6 +5,8 @@ import argparse
 import json
 import sys
 
+from .errors import UsageError
+
 SUBCOMMANDS = [
     {"name": "stem-verify", "desc": "Measure whether a stems folder sums to a master."},
     {"name": "tempo", "desc": "Detect tempo, sub-ms precision, and drift of an audio file."},
@@ -85,8 +87,15 @@ def _cmd_midi(args):
 
 
 def _load_manifest(path):
-    with open(path) as fh:
-        return json.load(fh)
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        raise UsageError(f"Manifest file not found: {path}",
+                         hint="pass an existing JSON file") from None
+    except json.JSONDecodeError as e:
+        raise UsageError(f"Manifest is not valid JSON: {path} ({e})",
+                         hint="fix the JSON syntax") from None
 
 
 def _als_commit(args, new_xml, diff, op):
@@ -223,7 +232,24 @@ def main(argv=None):
     # default args.json to False if a subcommand lacked the flag path
     if not hasattr(args, "json"):
         args.json = False
-    return DISPATCH[args.cmd](args)
+    try:
+        return DISPATCH[args.cmd](args)
+    except UsageError as e:
+        payload = {"error": str(e), "hint": e.hint}
+        if getattr(args, "json", False):
+            sys.stderr.write(json.dumps(payload) + "\n")
+        else:
+            sys.stderr.write(f"error: {e}\n")
+            if e.hint:
+                sys.stderr.write(f"hint: {e.hint}\n")
+        return e.exit_code
+    except FileNotFoundError as e:
+        payload = {"error": str(e), "hint": "check the file path"}
+        if getattr(args, "json", False):
+            sys.stderr.write(json.dumps(payload) + "\n")
+        else:
+            sys.stderr.write(f"error: {e}\nhint: check the file path\n")
+        return 3
 
 
 if __name__ == "__main__":
