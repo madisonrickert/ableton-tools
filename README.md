@@ -1,21 +1,24 @@
-# ableton-suite
+# ableton-tools
 
 Ableton Live toolkit as a Claude Code plugin: stem verification, tempo/drift
 analysis, MIDI transcription and comparison, and safe `.als` editing (rename,
 warp-to-grid, and stem import), all driven through a single `ableton`
 dispatcher backed by a uv-managed Python engine.
 
+Requires [uv](https://docs.astral.sh/uv/) (the engine runs under it) and
+`ffmpeg`/`ffprobe` on PATH for audio decoding.
+
 ## Install
 
-The plugin is served from this repo, which doubles as a local plugin
-marketplace (`.claude-plugin/marketplace.json` at the repo root). Install at
-user scope (the marketplace is already registered globally):
+This repo is its own plugin marketplace (`.claude-plugin/marketplace.json` at
+the root). Add it, then install at user scope:
 
 ```
-claude plugin install ableton-suite@claude-custom-skills
+claude plugin marketplace add madisonrickert/ableton-tools
+claude plugin install ableton-tools@ableton-tools
 ```
 
-Verify with `/plugin` (should list `ableton-suite`) or by running
+Verify with `/plugin` (should list `ableton-tools`) or by running
 `ableton manifest --json` in a session, which lists every subcommand the
 dispatcher supports.
 
@@ -72,26 +75,22 @@ derivation, color table) live in `engine/references/als-format.md`.
 ## Maintenance
 
 - Bump `version` in `.claude-plugin/plugin.json` whenever skill or engine
-  behavior changes.
-- Run `claude plugin validate <plugin dir>` and
-  `claude plugin validate <repo root>` before committing.
+  behavior changes, so the plugin cache refreshes on next install.
+- Run `claude plugin validate .` before committing (the repo root is both the
+  plugin and its marketplace).
 - Dev loop, from the repo root:
 
   ```
-  uv run --project ableton-suite/engine --group dev pytest
-  uvx ruff check ableton-suite/engine
-  uvx pyright --project ableton-suite/engine ableton-suite/engine/src
+  uv run --project engine --group dev pytest
+  uvx ruff check engine
+  uvx pyright --project engine engine/src
   ```
 
-  Note the explicit `--project ableton-suite/engine` on the pyright
-  invocation: `engine/pyproject.toml` sets `venvPath = "."` (relative to
-  the config file), and pyright only resolves that correctly once it
-  knows where the config lives. Running `uvx pyright ableton-suite/engine/src`
-  from the repo root without `--project` leaves pyright to auto-discover
-  the config relative to the invocation cwd instead, so it can't find
-  `engine/.venv` and reports spurious `reportMissingImports` errors on
-  every third-party dependency (numpy, scipy, soundfile, mido, librosa).
-
-- **The engine lives here now.** The old `~/.claude/skills/ableton-*`
-  installed copies are gone. Edit the engine and skills in this repo, then
-  bump the plugin version so the plugin cache refreshes on next install.
+  Note the explicit `--project engine` on the pyright invocation:
+  `engine/pyproject.toml` sets `venvPath = "."` (relative to the config
+  file), and pyright only resolves that correctly once it knows where the
+  config lives. Running `uvx pyright engine/src` from the repo root without
+  `--project` leaves pyright to auto-discover the config relative to the
+  invocation cwd instead, so it can't find `engine/.venv` and reports
+  spurious `reportMissingImports` errors on every third-party dependency
+  (numpy, scipy, soundfile, mido, librosa).

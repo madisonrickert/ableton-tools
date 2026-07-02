@@ -1,0 +1,14 @@
+{
+  "name": "ableton-tools",
+  "description": "Claude Code toolkit for Ableton Live projects: stem verification, tempo/drift analysis, MIDI transcription and comparison, and safe .als editing.",
+  "owner": {
+    "name": "Madison Rickert"
+  },
+  "plugins": [
+    {
+      "name": "ableton-tools",
+      "source": ".",
+      "description": "Ableton Live toolkit: stem verification, tempo/drift analysis, MIDI transcription and comparison, and safe .als editing via a uv-managed Python engine."
+    }
+  ]
+}

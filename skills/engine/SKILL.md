@@ -1,9 +1,9 @@
 ---
 name: engine
-description: Shared engine for the ableton-suite skills — a uv-managed Python library behind the single 'ableton' dispatcher (stem verification, tempo/drift analysis, MIDI transcription/comparison, safe .als editing, stem import). Invoke a specific ableton-suite skill for a task; use this directly to run a raw subcommand, extend the library, or when the 'ableton' command cannot be found.
+description: Shared engine for the ableton-tools skills — a uv-managed Python library behind the single 'ableton' dispatcher (stem verification, tempo/drift analysis, MIDI transcription/comparison, safe .als editing, stem import). Invoke a specific ableton-tools skill for a task; use this directly to run a raw subcommand, extend the library, or when the 'ableton' command cannot be found.
 ---
 
-This skill is the engine behind the ableton-suite command skills. It bundles
+This skill is the engine behind the ableton-tools command skills. It bundles
 reusable signal-processing and `.als`-editing logic distilled from a set of
 one-off analysis scripts (see `engine/references/source-scripts.md`).
 
@@ -20,8 +20,8 @@ including nested ones. The shim runs under uv and adds the heavy
 If `ableton` is not on PATH (plugin disabled, headless quirk), call the
 dispatcher directly: `<plugin-root>/engine/bin/ableton`, where
 `<plugin-root>` is this skill's grandparent directory — the plugin cache
-copy (`~/.claude/plugins/cache/claude-custom-skills/ableton-suite/<version>`)
-or the repo checkout (`~/Developer/claude-custom-skills/ableton-suite`).
+copy (`~/.claude/plugins/cache/ableton-tools/ableton-tools/<version>`) or a
+local checkout of the repo.
 
 ## Subcommands
 

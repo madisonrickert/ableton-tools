@@ -1,4 +1,4 @@
-# ableton-suite engine — harness reference
+# ableton-tools engine — harness reference
 
 Single entrypoint: `ableton <subcommand> [...] [--json]` (the plugin puts this
 on the Bash PATH; runs under `uv`). If `ableton` is not on PATH, call
