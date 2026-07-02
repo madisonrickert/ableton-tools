@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from ableton_tools import audio
 
 
@@ -19,8 +20,8 @@ def test_load_mono_resamples_to_target(tone_wav):
 
 
 def test_sum_stems_adds_signals(tmp_path, tone_wav):
-    a = tone_wav(name="a.wav", freq=220, dur_s=1.0, amp=0.3)
-    b = tone_wav(name="b.wav", freq=440, dur_s=1.0, amp=0.3)
+    tone_wav(name="a.wav", freq=220, dur_s=1.0, amp=0.3)
+    tone_wav(name="b.wav", freq=440, dur_s=1.0, amp=0.3)
     mix, sr, names = audio.sum_stems(tmp_path)
     assert sr == 48000
     assert set(names) == {"a.wav", "b.wav"}

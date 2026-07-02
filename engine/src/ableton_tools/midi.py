@@ -3,8 +3,8 @@ chroma profiles, and fit timing drift between transcriptions."""
 
 import itertools
 
-import numpy as np
 import mido
+import numpy as np
 
 
 def load_notes(path):
@@ -43,16 +43,18 @@ def load_notes(path):
             t += msg.time
             if msg.type == "note_on" and msg.velocity > 0:
                 on.setdefault(msg.note, []).append(t)
-            elif msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0):
-                if on.get(msg.note):
-                    start = on[msg.note].pop(0)
-                    notes.append(
-                        {
-                            "onset_s": tick_to_sec(start),
-                            "pitch": msg.note,
-                            "dur_s": tick_to_sec(t) - tick_to_sec(start),
-                        }
-                    )
+            elif (
+                (msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0))
+                and on.get(msg.note)
+            ):
+                start = on[msg.note].pop(0)
+                notes.append(
+                    {
+                        "onset_s": tick_to_sec(start),
+                        "pitch": msg.note,
+                        "dur_s": tick_to_sec(t) - tick_to_sec(start),
+                    }
+                )
     notes.sort(key=lambda n: n["onset_s"])
     return notes
 

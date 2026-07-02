@@ -1,9 +1,11 @@
 import json
+
 import numpy as np
 import pytest
 import soundfile as sf
-from ableton_tools import cli
 from conftest import STEM_ALS
+
+from ableton_tools import cli
 
 
 def test_manifest_lists_subcommands(capsys):
@@ -25,8 +27,9 @@ def test_stem_verify_json(tmp_path, capsys):
     sf.write(str(stems / "b.wav"), b, sr)
     master = tmp_path / "m.wav"
     sf.write(str(master), a + b, sr)
-    rc = cli.main(["stem-verify", "--stems", str(stems), "--master", str(master),
-                   "--win", "0.5", "--json"])
+    rc = cli.main(
+        ["stem-verify", "--stems", str(stems), "--master", str(master), "--win", "0.5", "--json"]
+    )
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert out["worst_db"] < -30
@@ -67,8 +70,22 @@ def test_missing_als_file_emits_structured_error(capsys):
 
 def test_unknown_clip_emits_structured_error(als_file, capsys):
     p = als_file()
-    rc = cli.main(["als", "move-clip", str(p), "--clip", "no_such_clip",
-                   "--to-beat", "4", "--dur-s", "7.5", "--bpm", "120", "--json"])
+    rc = cli.main(
+        [
+            "als",
+            "move-clip",
+            str(p),
+            "--clip",
+            "no_such_clip",
+            "--to-beat",
+            "4",
+            "--dur-s",
+            "7.5",
+            "--bpm",
+            "120",
+            "--json",
+        ]
+    )
     assert rc != 0
     err = json.loads(capsys.readouterr().err)
     assert "no_such_clip" in err["error"]
@@ -92,9 +109,18 @@ def test_als_import_stems_dry_run(als_file, stem_project, capsys):
     target = project_dir / "proj.als"
     target.write_bytes(p.read_bytes())
     before = target.read_bytes()
-    rc = cli.main(["als", "import-stems", str(target),
-                   "--master-track", "14", "--stems", str(project_dir / "suno-stems"),
-                   "--json"])
+    rc = cli.main(
+        [
+            "als",
+            "import-stems",
+            str(target),
+            "--master-track",
+            "14",
+            "--stems",
+            str(project_dir / "suno-stems"),
+            "--json",
+        ]
+    )
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert out["dry_run"] is True
@@ -105,14 +131,25 @@ def test_als_import_stems_dry_run(als_file, stem_project, capsys):
 def test_als_import_stems_rejects_mismatched_stems(als_file, stem_project, capsys):
     import numpy as np
     import soundfile as sf
+
     project_dir, stems = stem_project
-    sf.write(str(project_dir / "suno-stems" / "2 Bass.wav"),
-             np.zeros(50, dtype=np.float32), 8000)  # wrong length
+    sf.write(
+        str(project_dir / "suno-stems" / "2 Bass.wav"), np.zeros(50, dtype=np.float32), 8000
+    )  # wrong length
     target = project_dir / "proj.als"
     target.write_bytes(als_file(name="p2.als", xml=STEM_ALS).read_bytes())
-    rc = cli.main(["als", "import-stems", str(target),
-                   "--master-track", "14", "--stems", str(project_dir / "suno-stems"),
-                   "--json"])
+    rc = cli.main(
+        [
+            "als",
+            "import-stems",
+            str(target),
+            "--master-track",
+            "14",
+            "--stems",
+            str(project_dir / "suno-stems"),
+            "--json",
+        ]
+    )
     assert rc != 0
     err = json.loads(capsys.readouterr().err)
     assert "2 Bass.wav" in err["error"] or "2 Bass.wav" in (err["hint"] or "")
@@ -124,8 +161,15 @@ def test_manifest_includes_nested_subcommands_and_args(capsys):
     data = json.loads(capsys.readouterr().out)
     als_entry = next(c for c in data["subcommands"] if c["name"] == "als")
     subs = {s["name"] for s in als_entry["subcommands"]}
-    assert {"inspect", "rename", "move", "warp-to-grid", "move-clip",
-            "snap", "import-stems"} <= subs
+    assert {
+        "inspect",
+        "rename",
+        "move",
+        "warp-to-grid",
+        "move-clip",
+        "snap",
+        "import-stems",
+    } <= subs
     ims = next(s for s in als_entry["subcommands"] if s["name"] == "import-stems")
     argnames = {a["name"] for a in ims["args"]}
     assert {"--master-track", "--stems", "--commit"} <= argnames

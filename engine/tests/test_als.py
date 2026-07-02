@@ -1,6 +1,8 @@
 import gzip
 import re
+
 import pytest
+
 from ableton_tools import als
 from ableton_tools.errors import UsageError
 
@@ -90,7 +92,7 @@ _REALISTIC_ALS = """<?xml version="1.0" encoding="UTF-8"?>
 </Tempo></Mixer></DeviceChain></MasterTrack>
 </LiveSet>
 </Ableton>
-"""
+"""  # noqa: E501
 
 
 def test_clone_track_handles_extra_attributes_on_track_tag(als_file):
@@ -112,6 +114,7 @@ def test_clone_track_bumps_next_pointee_id(als_file):
     xml = als.read_als(str(p))
     out = als.clone_track(xml, src_track_id="14", new_name="Stem 1", new_id=100)
     import re
+
     npi = int(re.search(r'<NextPointeeId Value="(\d+)"', out).group(1))
     max_id = max(int(x) for x in re.findall(r'Id="(\d+)"', out))
     assert npi > max_id, f"NextPointeeId={npi} must exceed max Id={max_id}"
@@ -130,6 +133,7 @@ def test_clone_track_multiple_calls_do_not_collide_ids(als_file):
     once = als.clone_track(xml, src_track_id="14", new_name="Stem 1", new_id=100)
     twice = als.clone_track(once, src_track_id="14", new_name="Stem 2", new_id=101)
     import re
+
     # Three tracks in the resulting document (order: source then clones in
     # reverse insertion order, since each clone inserts immediately after the
     # source block — fine for a primitive; callers that care about order can
@@ -139,21 +143,16 @@ def test_clone_track_multiple_calls_do_not_collide_ids(als_file):
     # The two clones' internal warp marker Ids (cloned from master Id=0 + Id=2)
     # should have been offset into disjoint ranges. Find each clone's offset by
     # scanning WarpMarker Ids per track block.
-    track_blocks = re.findall(
-        r'<AudioTrack\s+Id="\d+"[^>]*>.*?</AudioTrack>', twice, re.DOTALL
-    )
+    track_blocks = re.findall(r'<AudioTrack\s+Id="\d+"[^>]*>.*?</AudioTrack>', twice, re.DOTALL)
     assert len(track_blocks) == 3
     warp_ids_per_track = [
-        [int(x) for x in re.findall(r'<WarpMarker Id="(\d+)"', b)]
-        for b in track_blocks
+        [int(x) for x in re.findall(r'<WarpMarker Id="(\d+)"', b)] for b in track_blocks
     ]
     # No overlap between any two tracks' warp marker Id sets
     for i in range(len(warp_ids_per_track)):
         for j in range(i + 1, len(warp_ids_per_track)):
             overlap = set(warp_ids_per_track[i]) & set(warp_ids_per_track[j])
-            assert not overlap, (
-                f"Tracks {i} and {j} share WarpMarker Ids {overlap}"
-            )
+            assert not overlap, f"Tracks {i} and {j} share WarpMarker Ids {overlap}"
 
 
 def test_clone_track_same_explicit_id_offset_raises(als_file):
@@ -162,13 +161,12 @@ def test_clone_track_same_explicit_id_offset_raises(als_file):
     Ableton will refuse to load correctly. clone_track must detect this
     in-call and raise ValueError naming the offending offset/ids."""
     import pytest
+
     p = als_file(xml=_REALISTIC_ALS)
     xml = als.read_als(str(p))
-    once = als.clone_track(xml, src_track_id="14", new_name="Stem 1", new_id=100,
-                            id_offset=5000)
+    once = als.clone_track(xml, src_track_id="14", new_name="Stem 1", new_id=100, id_offset=5000)
     with pytest.raises(ValueError):
-        als.clone_track(once, src_track_id="14", new_name="Stem 2", new_id=101,
-                         id_offset=5000)
+        als.clone_track(once, src_track_id="14", new_name="Stem 2", new_id=101, id_offset=5000)
 
 
 def test_backup_writes_timestamped_copy(als_file):
@@ -176,12 +174,14 @@ def test_backup_writes_timestamped_copy(als_file):
     b = als.backup(str(p), op="test")
     # Ableton-native backup convention: <project>/Backup/<stem> [YYYY-MM-DD HHMMSS].als
     from pathlib import Path
+
     bp = Path(b)
     assert bp.parent.name == "Backup"
     assert bp.parent.parent == Path(p).parent
     assert bp.name.startswith(Path(p).stem + " [")
     assert bp.suffix == ".als"
-    assert gzip.open(b, "rb").read() == gzip.open(str(p), "rb").read()
+    with gzip.open(b, "rb") as f1, gzip.open(str(p), "rb") as f2:
+        assert f1.read() == f2.read()
 
 
 def test_backup_same_second_collision_gets_distinct_paths(als_file):
@@ -192,21 +192,23 @@ def test_backup_same_second_collision_gets_distinct_paths(als_file):
     b1 = als.backup(str(p), op="test")
     b2 = als.backup(str(p), op="test")
     from pathlib import Path
+
     assert b1 != b2
     assert Path(b1).exists()
     assert Path(b2).exists()
-    src_bytes = gzip.open(str(p), "rb").read()
-    assert gzip.open(b1, "rb").read() == src_bytes
-    assert gzip.open(b2, "rb").read() == src_bytes
+    with gzip.open(str(p), "rb") as f:
+        src_bytes = f.read()
+    with gzip.open(b1, "rb") as f:
+        assert f.read() == src_bytes
+    with gzip.open(b2, "rb") as f:
+        assert f.read() == src_bytes
 
 
 def test_rename_refs_only_touches_path_tags(als_file):
     """A clip Name that happens to equal the old path must not be rewritten."""
     xml = als.read_als(str(als_file()))
-    xml = xml.replace('<Name Value="bass_clip"/>',
-                      '<Name Value="Samples/Imported/bass.wav"/>')
-    out, diff = als.rename_refs(
-        xml, {"Samples/Imported/bass.wav": "Samples/Imported/x.wav"})
+    xml = xml.replace('<Name Value="bass_clip"/>', '<Name Value="Samples/Imported/bass.wav"/>')
+    out, diff = als.rename_refs(xml, {"Samples/Imported/bass.wav": "Samples/Imported/x.wav"})
     assert '<Name Value="Samples/Imported/bass.wav"/>' in out
     assert '<RelativePath Value="Samples/Imported/x.wav"/>' in out
     assert diff["changed"] == 1
@@ -222,10 +224,10 @@ def test_warp_to_grid_errors_on_missing_warpmarkers(als_file):
 def test_set_tempo_targets_master_track_not_first_tempo(als_file):
     xml = als.read_als(str(als_file()))
     # Plant a decoy <Tempo> block earlier in the document than MasterTrack's.
-    decoy = "<Tempo>\n<Manual Value=\"99\"/>\n</Tempo>\n"
+    decoy = '<Tempo>\n<Manual Value="99"/>\n</Tempo>\n'
     xml = xml.replace("<Tracks>", "<Tracks>\n" + decoy, 1)
     out = als.set_tempo(xml, 134.0)
-    assert '<Manual Value="99"/>' in out          # decoy untouched
+    assert '<Manual Value="99"/>' in out  # decoy untouched
     assert als.inspect_xml(out)["tempo"] == 134.0  # master tempo changed
 
 
@@ -233,7 +235,7 @@ def test_clip_block_rejects_ambiguous_name(als_file):
     xml = als.read_als(str(als_file()))
     m = re.search(r"<AudioClip\b.*?</AudioClip>", xml, re.DOTALL)
     twin = m.group(0).replace('Id="0"', 'Id="7"', 1)
-    xml_dup = xml[: m.end()] + "\n" + twin + xml[m.end():]
+    xml_dup = xml[: m.end()] + "\n" + twin + xml[m.end() :]
     with pytest.raises(UsageError, match="[Aa]mbiguous"):
         als.move_clip_to_beat(xml_dup, "bass_clip", beat=8.0, dur_s=7.5, bpm=120.0)
 
@@ -241,5 +243,6 @@ def test_clip_block_rejects_ambiguous_name(als_file):
 def test_move_clip_updates_arrangement_time_attribute(als_file):
     xml = als.read_als(str(als_file()))
     out, _ = als.move_clip_to_beat(xml, "bass_clip", beat=8.0, dur_s=7.5, bpm=120.0)
-    assert re.search(r'<AudioClip Id="0" Time="8[.0]*"', out), \
+    assert re.search(r'<AudioClip Id="0" Time="8[.0]*"', out), (
         "arrangement Time attribute must track CurrentStart"
+    )

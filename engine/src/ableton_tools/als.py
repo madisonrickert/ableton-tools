@@ -73,8 +73,9 @@ def inspect_xml(xml):
             continue
         name_el = track.find("./Name/EffectiveName")
         if name_el is not None:
-            info["tracks"].append({"tag": track.tag, "id": track.get("Id"),
-                                   "name": name_el.get("Value")})
+            info["tracks"].append(
+                {"tag": track.tag, "id": track.get("Id"), "name": name_el.get("Value")}
+            )
 
     for clip in root.iter("AudioClip"):
         name = _attr(clip, "Name", default=None)
@@ -82,13 +83,15 @@ def inspect_xml(xml):
         end = clip.find("CurrentEnd")
         rel = clip.find(".//SampleRef/FileRef/RelativePath")
         warped = clip.find("IsWarped")
-        info["clips"].append({
-            "name": name,
-            "current_start": float(start.get("Value")) if start is not None else None,
-            "current_end": float(end.get("Value")) if end is not None else None,
-            "relative_path": rel.get("Value") if rel is not None else None,
-            "is_warped": (warped.get("Value") == "true") if warped is not None else None,
-        })
+        info["clips"].append(
+            {
+                "name": name,
+                "current_start": float(start.get("Value")) if start is not None else None,
+                "current_end": float(end.get("Value")) if end is not None else None,
+                "relative_path": rel.get("Value") if rel is not None else None,
+                "is_warped": (warped.get("Value") == "true") if warped is not None else None,
+            }
+        )
     return info
 
 
@@ -113,7 +116,7 @@ def set_tempo(xml, bpm):
     )
     if n == 0:
         raise UsageError("MasterTrack has no <Tempo><Manual> element to set")
-    return xml[: m.start()] + block + xml[m.end():]
+    return xml[: m.start()] + block + xml[m.end() :]
 
 
 def rename_refs(xml, mapping):
@@ -128,13 +131,13 @@ def rename_refs(xml, mapping):
         before = out
         out = re.sub(
             rf'(<(?:RelativePath|Path) Value="){re.escape(old)}(")',
-            lambda m: m.group(1) + new + m.group(2),
+            lambda m, new=new: m.group(1) + new + m.group(2),  # noqa: B023
             out,
         )
         # also patch absolute Path leaves that end with the old filename
         out = re.sub(
             rf'(<Path Value="[^"]*/){re.escape(old_name)}(")',
-            lambda m: m.group(1) + new_name + m.group(2),
+            lambda m, new_name=new_name: m.group(1) + new_name + m.group(2),  # noqa: B023
             out,
         )
         if out != before:
@@ -153,12 +156,14 @@ def _clip_block(xml, clip_name):
     if not hits:
         raise UsageError(
             f"AudioClip named {clip_name!r} not found",
-            hint="run `ableton als inspect FILE.als --json` to list clip names")
+            hint="run `ableton als inspect FILE.als --json` to list clip names",
+        )
     if len(hits) > 1:
         raise UsageError(
             f"AudioClip name {clip_name!r} is ambiguous ({len(hits)} matches); "
             "rename one clip or address it by a unique name",
-            hint="run `ableton als inspect FILE.als --json` to list clip names")
+            hint="run `ableton als inspect FILE.als --json` to list clip names",
+        )
     return hits[0]
 
 
@@ -168,17 +173,15 @@ def move_clip_to_beat(xml, clip_name, beat, dur_s, bpm):
     block = xml[s:e]
     length_beats = dur_s * bpm / 60.0
     block = re.sub(r'(<CurrentStart Value=")[\d.]+(")', rf"\g<1>{beat:g}\g<2>", block)
-    block = re.sub(r'(<CurrentEnd Value=")[\d.]+(")',
-                   rf"\g<1>{beat + length_beats:g}\g<2>", block)
+    block = re.sub(r'(<CurrentEnd Value=")[\d.]+(")', rf"\g<1>{beat + length_beats:g}\g<2>", block)
     # Arrangement position: the AudioClip open tag's Time attribute is the
     # clip's arrangement start in beats and must track CurrentStart. Absent
     # on pure Session-view clips, hence subn without a required count.
     block, _ = re.subn(
-        r'(<AudioClip\b[^>]*\bTime=")[\d.]+(")',
-        rf"\g<1>{beat:g}\g<2>", block, count=1)
+        r'(<AudioClip\b[^>]*\bTime=")[\d.]+(")', rf"\g<1>{beat:g}\g<2>", block, count=1
+    )
     new_xml = xml[:s] + block + xml[e:]
-    return new_xml, {"clip": clip_name, "to_beat": beat,
-                     "end_beat": round(beat + length_beats, 6)}
+    return new_xml, {"clip": clip_name, "to_beat": beat, "end_beat": round(beat + length_beats, 6)}
 
 
 def warp_to_grid(xml, clip_names, bpm, durations):
@@ -198,15 +201,15 @@ def warp_to_grid(xml, clip_names, bpm, durations):
             "</WarpMarkers>"
         )
         block, n_replaced = re.subn(
-            r"<WarpMarkers>.*?</WarpMarkers>", markers, block, flags=re.DOTALL)
+            r"<WarpMarkers>.*?</WarpMarkers>", markers, block, flags=re.DOTALL
+        )
         if n_replaced == 0:
             raise UsageError(
-                f"Clip {name!r} has no <WarpMarkers> block to replace; "
-                "cannot grid-lock it",
-                hint="only previously-warped audio clips can be grid-locked")
+                f"Clip {name!r} has no <WarpMarkers> block to replace; cannot grid-lock it",
+                hint="only previously-warped audio clips can be grid-locked",
+            )
         if "<IsWarped" in block:
-            block = re.sub(r'<IsWarped Value="(true|false)"/>',
-                           '<IsWarped Value="true"/>', block)
+            block = re.sub(r'<IsWarped Value="(true|false)"/>', '<IsWarped Value="true"/>', block)
         out = out[:s] + block + out[e:]
         warped.append(name)
     return out, {"warped": warped, "bpm": bpm}
@@ -233,7 +236,8 @@ def _find_track_block(xml, src_track_id):
     if not m:
         raise UsageError(
             f"Track Id {src_track_id} not found",
-            hint="run `ableton als inspect FILE.als --json` to list track ids")
+            hint="run `ableton als inspect FILE.als --json` to list track ids",
+        )
     tag = m.group(1)
     end = xml.find(f"</{tag}Track>", m.end())
     if end < 0:
@@ -272,7 +276,7 @@ def clone_track(xml, src_track_id, new_name, new_id, id_offset=None):
         block,
     )
     clone = re.sub(
-        rf'(<\w+Track Id=")\d+(")',
+        r'(<\w+Track Id=")\d+(")',
         rf"\g<1>{new_id}\g<2>",
         clone,
         count=1,
@@ -302,7 +306,7 @@ def clone_track(xml, src_track_id, new_name, new_id, id_offset=None):
     max_id = max(int(x) for x in re.findall(r'Id="(\d+)"', new_xml))
     new_xml, n = re.subn(
         r'(<NextPointeeId Value=")\d+(")',
-        rf'\g<1>{max_id + 1}\g<2>',
+        rf"\g<1>{max_id + 1}\g<2>",
         new_xml,
         count=1,
     )

@@ -1,12 +1,13 @@
 import re
 
+import numpy as np
 import pytest
 import soundfile as sf
-import numpy as np
-
-from ableton_tools import als, import_stems as ist
-from ableton_tools.errors import UsageError
 from conftest import STEM_ALS
+
+from ableton_tools import als
+from ableton_tools import import_stems as ist
+from ableton_tools.errors import UsageError
 
 # stem_project fixture lives in conftest.py (canonical home; also used by
 # test_cli.py's import-stems tests).
@@ -20,7 +21,7 @@ def test_bare_label_strips_numeric_prefix():
 
 def test_color_lookup_exact_substring_default():
     assert ist._color_for("Lead Vocals") == 20
-    assert ist._color_for("Synth Lead") == 14      # substring match on "synth"
+    assert ist._color_for("Synth Lead") == 14  # substring match on "synth"
     assert ist._color_for("Weird Noises") == ist.DEFAULT_COLOR
     assert ist._color_for("Drums", colors={"drums": 9}) == 9  # override wins
 

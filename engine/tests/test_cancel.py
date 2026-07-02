@@ -1,4 +1,5 @@
 import numpy as np
+
 from ableton_tools import cancel
 
 
@@ -34,6 +35,7 @@ def test_windowed_cancellation_shallow_for_unrelated():
 
 def test_stem_verify_true_sibling(tmp_path, tone_wav):
     import soundfile as sf
+
     sr = 48000
     t = np.arange(sr * 2) / sr
     a = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)

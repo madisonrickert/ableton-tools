@@ -61,7 +61,8 @@ def _patch_attr(block, tag, value, required=True):
     if required and n == 0:
         raise UsageError(
             f"Cloned track block has no <{tag}> element to patch",
-            hint="the master track layout is unexpected; inspect the .als")
+            hint="the master track layout is unexpected; inspect the .als",
+        )
     return out
 
 
@@ -72,7 +73,8 @@ def master_audio_path(xml, master_track_id, project_dir):
     if not m:
         raise UsageError(
             f"Track {master_track_id} has no sample RelativePath",
-            hint="pick the audio track that holds the warped master clip")
+            hint="pick the audio track that holds the warped master clip",
+        )
     return Path(project_dir) / m.group(1)
 
 
@@ -86,12 +88,15 @@ def check_stem_invariants(master_audio, stem_paths):
     for p in stem_paths:
         i = sf.info(str(p))
         if i.frames != ref.frames or i.samplerate != ref.samplerate:
-            problems.append({
-                "file": str(p),
-                "frames": i.frames, "samplerate": i.samplerate,
-                "expected_frames": ref.frames,
-                "expected_samplerate": ref.samplerate,
-            })
+            problems.append(
+                {
+                    "file": str(p),
+                    "frames": i.frames,
+                    "samplerate": i.samplerate,
+                    "expected_frames": ref.frames,
+                    "expected_samplerate": ref.samplerate,
+                }
+            )
     return problems
 
 
@@ -117,36 +122,36 @@ def import_stems(xml, master_track_id, stem_files, project_dir, colors=None):
         offset = base * (i + 1)
         new_id = int(master_track_id) + offset
         effective_name = f"{i + 2}-{label}"  # master is track 1
-        out = als.clone_track(out, master_track_id, effective_name,
-                              new_id, id_offset=offset)
+        out = als.clone_track(out, master_track_id, effective_name, new_id, id_offset=offset)
         s, e, _ = als._find_track_block(out, str(new_id))
         block = out[s:e]
 
         try:
             rel = stem.resolve().relative_to(project_dir.resolve())
-        except ValueError:
+        except ValueError as err:
             raise UsageError(
                 f"Stem {stem} is outside the project directory {project_dir}",
-                hint="move or copy the stems into the Ableton project folder first")
+                hint="move or copy the stems into the Ableton project folder first",
+            ) from err
         block = _patch_attr(block, "RelativePath", str(rel))
         block = _patch_attr(block, "Path", str(stem.resolve()))
-        block = _patch_attr(block, "OriginalFileSize",
-                            stem.stat().st_size, required=False)
+        block = _patch_attr(block, "OriginalFileSize", stem.stat().st_size, required=False)
         block = _patch_attr(block, "OriginalCrc", 0, required=False)
-        block = _patch_attr(block, "IsSongTempoLeader", "false",
-                            required=False)
+        block = _patch_attr(block, "IsSongTempoLeader", "false", required=False)
         block = _patch_attr(block, "Name", label)  # session + arrangement clips
-        block = _patch_attr(block, "MemorizedFirstClipName", label,
-                            required=False)
+        block = _patch_attr(block, "MemorizedFirstClipName", label, required=False)
         block = _patch_attr(block, "Color", color, required=False)
 
         out = out[:s] + block + out[e:]
-        stems_meta.append({
-            "file": str(stem), "label": label,
-            "effective_name": effective_name, "color": color,
-            "relative_path": str(rel),
-        })
+        stems_meta.append(
+            {
+                "file": str(stem),
+                "label": label,
+                "effective_name": effective_name,
+                "color": color,
+                "relative_path": str(rel),
+            }
+        )
 
     stems_meta.reverse()  # report in filename order
-    return out, {"master_track_id": str(master_track_id),
-                 "stems": stems_meta}
+    return out, {"master_track_id": str(master_track_id), "stems": stems_meta}

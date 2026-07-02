@@ -6,8 +6,8 @@ Claude Code instance from these numbers + CANCEL_BANDS; no LLM call here.
 
 import numpy as np
 
-from .audio import load_mono, sum_stems, to_db, rms
 from .align import find_lag
+from .audio import load_mono, rms, sum_stems, to_db
 
 CANCEL_BANDS = {
     "sibling": "worst_db < -15  -> stems are this master (true sibling)",
@@ -70,7 +70,9 @@ def stem_verify(master_path, stems_dir, win_s=10.0, max_lag_ms=200.0, pattern="*
     master, sr = load_mono(master_path)
     mix, _, names = sum_stems(stems_dir, target_sr=sr, pattern=pattern)
     refine = int(max_lag_ms / 1000.0 * sr)
-    lag, alpha, rr = find_lag(master, mix, sr, search_s=max(2.0, max_lag_ms / 1000.0), refine=refine)
+    lag, alpha, rr = find_lag(
+        master, mix, sr, search_s=max(2.0, max_lag_ms / 1000.0), refine=refine
+    )
     # apply lag so the two line up before windowed measurement
     if lag >= 0:
         ref = master[lag:]

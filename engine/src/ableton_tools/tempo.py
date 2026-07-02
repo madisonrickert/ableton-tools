@@ -1,8 +1,8 @@
 """Tempo detection (beat-tracking), sub-ms precision (autocorrelation),
 and real drift (inter-beat-interval regression)."""
 
-import numpy as np
 import librosa
+import numpy as np
 
 
 def _onset_env(path):

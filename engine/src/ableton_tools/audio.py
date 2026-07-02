@@ -22,8 +22,18 @@ def _ffmpeg_load(path, target_sr):
     """Decode any format ffmpeg understands to mono float32 at target_sr."""
     require_binary("ffmpeg")
     cmd = [
-        "ffmpeg", "-v", "error", "-i", str(path),
-        "-ac", "1", "-ar", str(target_sr), "-f", "f32le", "-",
+        "ffmpeg",
+        "-v",
+        "error",
+        "-i",
+        str(path),
+        "-ac",
+        "1",
+        "-ar",
+        str(target_sr),
+        "-f",
+        "f32le",
+        "-",
     ]
     out = subprocess.run(cmd, capture_output=True, check=True).stdout
     return np.frombuffer(out, dtype="<f4").astype(np.float32), target_sr

@@ -1,25 +1,29 @@
 import gzip
-import numpy as np
-import soundfile as sf
+
 import mido
+import numpy as np
 import pytest
+import soundfile as sf
 
 
 @pytest.fixture
 def tone_wav(tmp_path):
     """Factory: write a sine tone to a wav, return its path."""
+
     def _make(name="tone.wav", freq=220.0, dur_s=4.0, sr=48000, amp=0.5, phase=0.0):
         t = np.arange(int(dur_s * sr)) / sr
         x = (amp * np.sin(2 * np.pi * freq * t + phase)).astype(np.float32)
         p = tmp_path / name
         sf.write(str(p), x, sr)
         return p
+
     return _make
 
 
 @pytest.fixture
 def click_wav(tmp_path):
     """Factory: write a click track at a known BPM, return its path."""
+
     def _make(name="click.wav", bpm=120.0, bars=8, sr=48000):
         period = 60.0 / bpm
         n = int(period * 4 * bars * sr)
@@ -31,12 +35,14 @@ def click_wav(tmp_path):
         p = tmp_path / name
         sf.write(str(p), x, sr)
         return p
+
     return _make
 
 
 @pytest.fixture
 def midi_file(tmp_path):
     """Factory: write a single-track MIDI from (onset_s, pitch, dur_s) tuples."""
+
     def _make(name="m.mid", notes=((0.0, 60, 0.4), (0.5, 62, 0.4)), bpm=120.0):
         mid = mido.MidiFile()
         tpb = mid.ticks_per_beat
@@ -59,6 +65,7 @@ def midi_file(tmp_path):
         p = tmp_path / name
         mid.save(str(p))
         return p
+
     return _make
 
 
@@ -91,17 +98,19 @@ MINIMAL_ALS = """<?xml version="1.0" encoding="UTF-8"?>
 </Tempo></Mixer></DeviceChain></MasterTrack>
 </LiveSet>
 </Ableton>
-"""
+"""  # noqa: E501
 
 
 @pytest.fixture
 def als_file(tmp_path):
     """Factory: write a minimal gzipped .als, return its path."""
+
     def _make(name="test.als", xml=MINIMAL_ALS):
         p = tmp_path / name
         with gzip.open(str(p), "wb") as fh:
             fh.write(xml.encode("utf-8"))
         return p
+
     return _make
 
 
@@ -141,7 +150,7 @@ STEM_ALS = """<?xml version="1.0" encoding="UTF-8"?>
 </Tempo></Mixer></DeviceChain></MasterTrack>
 </LiveSet>
 </Ableton>
-"""
+"""  # noqa: E501
 
 
 @pytest.fixture
