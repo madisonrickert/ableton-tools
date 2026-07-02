@@ -246,3 +246,21 @@ def test_move_clip_updates_arrangement_time_attribute(als_file):
     assert re.search(r'<AudioClip Id="0" Time="8[.0]*"', out), (
         "arrangement Time attribute must track CurrentStart"
     )
+
+
+def test_set_tempo_raises_without_mastertrack(als_file):
+    xml = als.read_als(str(als_file())).replace(
+        "<MasterTrack><DeviceChain><Mixer><Tempo>\n"
+        '<Manual Value="120"/>\n'
+        "</Tempo></Mixer></DeviceChain></MasterTrack>",
+        "",
+    )
+    assert "<MasterTrack>" not in xml
+    with pytest.raises(UsageError, match="MasterTrack"):
+        als.set_tempo(xml, 134.0)
+
+
+def test_set_tempo_raises_without_manual_tag(als_file):
+    xml = als.read_als(str(als_file())).replace('<Manual Value="120"/>', "")
+    with pytest.raises(UsageError, match="Tempo"):
+        als.set_tempo(xml, 134.0)

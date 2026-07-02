@@ -71,3 +71,27 @@ def test_master_audio_path_resolves_from_xml(stem_project):
     project_dir, _ = stem_project
     p = ist.master_audio_path(STEM_ALS, "14", project_dir)
     assert p == project_dir / "Samples" / "Imported" / "master.wav"
+
+
+def test_master_audio_path_raises_without_relative_path(stem_project):
+    project_dir, _ = stem_project
+    xml = re.sub(r"<RelativePath Value=\"[^\"]+\"/>\n?", "", STEM_ALS)
+    assert "RelativePath" not in xml
+    with pytest.raises(UsageError, match="RelativePath"):
+        ist.master_audio_path(xml, "14", project_dir)
+
+
+def test_import_stems_rejects_stem_outside_project_dir(stem_project, tmp_path_factory):
+    """Documented in engine/CLAUDE.md: import-stems refuses a stem outside
+    the project directory rather than repointing to it with a path escape.
+
+    stem_project's `tmp_path` and this test's own `tmp_path` would be the
+    *same* directory (fixture instances are cached per test), so a sibling
+    of `tmp_path` is still inside `project_dir`; a fresh top-level temp dir
+    from `tmp_path_factory` is required to land genuinely outside it."""
+    project_dir, stems = stem_project
+    outside_dir = tmp_path_factory.mktemp("not-the-project")
+    outside_stem = outside_dir / stems[0].name
+    outside_stem.write_bytes(stems[0].read_bytes())
+    with pytest.raises(UsageError, match="outside the project directory"):
+        ist.import_stems(STEM_ALS, "14", [outside_stem, stems[1]], project_dir)

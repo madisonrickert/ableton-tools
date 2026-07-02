@@ -48,8 +48,8 @@ def precise_tempo(path: str | Path) -> dict[str, Any]:
     a, b, c = ac[k - 1], ac[k], ac[k + 1]
     denom = a - 2 * b + c
     delta = 0.5 * (a - c) / denom if denom != 0 else 0.0
-    period_s = (k + delta) / fps
-    return {"precise_bpm": round(60.0 / period_s, 4), "period_s": float(period_s)}
+    period_s = float((k + delta) / fps)
+    return {"precise_bpm": round(60.0 / period_s, 4), "period_s": period_s}
 
 
 def tempo_drift(path: str | Path, hint_bpm: float | None = None) -> dict[str, Any]:

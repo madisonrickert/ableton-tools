@@ -33,6 +33,16 @@ def test_windowed_cancellation_shallow_for_unrelated():
     assert out["median_db"] > -6  # unrelated audio barely cancels
 
 
+def test_windowed_cancellation_returns_zeros_for_silent_reference():
+    """A silent master would otherwise divide by ref_rms==0 per window; the
+    degenerate case must short-circuit to an explicit zeroed report instead."""
+    ref = np.zeros(48000 * 2)
+    rng = np.random.default_rng(7)
+    sig = rng.standard_normal(48000 * 2)
+    out = cancel.windowed_cancellation(ref, sig, sr=48000, win_s=1.0)
+    assert out == {"median_db": 0.0, "worst_db": 0.0, "best_db": 0.0, "n_windows": 0}
+
+
 def test_stem_verify_true_sibling(tmp_path, tone_wav):
     import soundfile as sf
 

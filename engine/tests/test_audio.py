@@ -1,3 +1,6 @@
+import shutil
+import subprocess
+
 import numpy as np
 import pytest
 
@@ -42,3 +45,40 @@ def test_to_db_and_rms():
     assert audio.to_db(0.5) == pytest.approx(-6.0206, abs=1e-3)
     x = np.ones(100)
     assert audio.rms(x) == pytest.approx(1.0)
+
+
+def test_resample_noop_when_rates_match():
+    x = np.arange(100, dtype=np.float32)
+    out = audio.resample(x, 48000, 48000)
+    assert out is x  # early-return branch, no resample_poly call
+
+
+def test_sum_stems_raises_when_no_files_match(tmp_path):
+    empty = tmp_path / "empty_stems"
+    empty.mkdir()
+    with pytest.raises(FileNotFoundError, match="No files matching"):
+        audio.sum_stems(empty)
+
+
+def test_require_binary_raises_when_missing():
+    with pytest.raises(RuntimeError, match="not found on PATH"):
+        audio.require_binary("definitely-not-a-real-binary-xyz")
+
+
+def test_require_binary_passes_when_present():
+    audio.require_binary("ls")  # must not raise
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not on PATH")
+def test_load_mono_falls_back_to_ffmpeg_for_formats_soundfile_cant_read(tmp_path, tone_wav):
+    """soundfile/libsndfile can decode wav/flac/ogg/mp3 directly but not m4a
+    (AAC); load_mono must fall back to the ffmpeg path for it."""
+    wav = tone_wav(dur_s=0.5, sr=48000)
+    m4a = tmp_path / "tone.m4a"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(wav), str(m4a)], check=True
+    )
+    x, sr = audio.load_mono(m4a, target_sr=48000)
+    assert sr == 48000
+    assert x.dtype == np.float32
+    assert len(x) > 0
