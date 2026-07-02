@@ -4,22 +4,24 @@ basic-pitch is imported lazily so the rest of the pack never pays its
 TensorFlow import cost. It is installed only via the `transcribe` extra.
 """
 
+from __future__ import annotations
+
 import shutil
 from pathlib import Path
 
 
 def transcribe(
-    audio_path,
-    out_path=None,
-    onset_threshold=0.5,
-    frame_threshold=0.3,
-    minimum_note_length_ms=58.0,
-    melodia_trick=True,
-):
+    audio_path: str | Path,
+    out_path: str | Path | None = None,
+    onset_threshold: float = 0.5,
+    frame_threshold: float = 0.3,
+    minimum_note_length_ms: float = 58.0,
+    melodia_trick: bool = True,
+) -> str:
     """Transcribe an audio file to a MIDI file; return the output path."""
     try:
-        from basic_pitch import ICASSP_2022_MODEL_PATH
-        from basic_pitch.inference import predict_and_save
+        from basic_pitch import ICASSP_2022_MODEL_PATH  # type: ignore[reportMissingImports]
+        from basic_pitch.inference import predict_and_save  # type: ignore[reportMissingImports]
     except ImportError as exc:  # pragma: no cover - exercised only without extra
         raise RuntimeError(
             "basic-pitch is not installed. Run via "

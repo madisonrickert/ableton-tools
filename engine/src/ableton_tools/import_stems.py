@@ -8,8 +8,11 @@ the clones inherit the master's warp markers verbatim, which is only correct
 when the audio timelines are identical. check_stem_invariants() gates this.
 """
 
+from __future__ import annotations
+
 import re
 from pathlib import Path
+from typing import Any
 
 from . import als
 from .errors import UsageError
@@ -30,7 +33,7 @@ STEM_COLORS = {
 DEFAULT_COLOR = 23  # Other / FX
 
 
-def _bare_label(filename_stem):
+def _bare_label(filename_stem: str) -> str:
     """'0 Lead Vocals' -> 'Lead Vocals'. Live rewrites EffectiveName as
     '<track-index>-<first-clip-Name>' on load, so a numeric filename prefix
     left in the clip Name would produce '2-0 Lead Vocals'."""
@@ -38,7 +41,7 @@ def _bare_label(filename_stem):
     return label or filename_stem
 
 
-def _color_for(label, colors=None):
+def _color_for(label: str, colors: dict[str, int] | None = None) -> int:
     table = dict(STEM_COLORS)
     if colors:
         table.update({k.lower(): v for k, v in colors.items()})
@@ -51,7 +54,7 @@ def _color_for(label, colors=None):
     return DEFAULT_COLOR
 
 
-def _patch_attr(block, tag, value, required=True):
+def _patch_attr(block: str, tag: str, value: str | int, required: bool = True) -> str:
     """Set every `<tag Value="...">` inside block to `value`."""
     out, n = re.subn(
         rf'(<{tag} Value=")[^"]*(")',
@@ -66,7 +69,9 @@ def _patch_attr(block, tag, value, required=True):
     return out
 
 
-def master_audio_path(xml, master_track_id, project_dir):
+def master_audio_path(
+    xml: str, master_track_id: str | int, project_dir: str | Path
+) -> Path:
     """Resolve the master track's clip RelativePath against project_dir."""
     s, e, _ = als._find_track_block(xml, master_track_id)
     m = re.search(r'<RelativePath Value="([^"]+)"', xml[s:e])
@@ -78,13 +83,15 @@ def master_audio_path(xml, master_track_id, project_dir):
     return Path(project_dir) / m.group(1)
 
 
-def check_stem_invariants(master_audio, stem_paths):
+def check_stem_invariants(
+    master_audio: str | Path, stem_paths: list[Path]
+) -> list[dict[str, Any]]:
     """Every stem must match the master's frames and samplerate. Returns a
     list of problem dicts; empty means safe to import."""
     import soundfile as sf
 
     ref = sf.info(str(master_audio))
-    problems = []
+    problems: list[dict[str, Any]] = []
     for p in stem_paths:
         i = sf.info(str(p))
         if i.frames != ref.frames or i.samplerate != ref.samplerate:
@@ -100,23 +107,29 @@ def check_stem_invariants(master_audio, stem_paths):
     return problems
 
 
-def import_stems(xml, master_track_id, stem_files, project_dir, colors=None):
+def import_stems(
+    xml: str,
+    master_track_id: str | int,
+    stem_files: list[Path] | list[str],
+    project_dir: str | Path,
+    colors: dict[str, int] | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Clone the master track once per stem file (sorted by filename),
     repoint each clone's SampleRef, set bare-label clip names, demote the
     tempo lead, and apply the color convention. Returns (new_xml, diff).
 
     Pure XML transform: no disk writes. The CLI layer owns dry-run/commit."""
     project_dir = Path(project_dir)
-    stem_files = sorted(Path(p) for p in stem_files)
+    sorted_stem_files = sorted(Path(p) for p in stem_files)
 
     all_ids = [int(x) for x in re.findall(r'Id="(\d+)"', xml)]
     base = ((max(all_ids) // 10000) + 1) * 10000 if all_ids else 10000
 
-    stems_meta = []
+    stems_meta: list[dict[str, Any]] = []
     out = xml
     # clone_track inserts each clone immediately after the SOURCE block, so
     # iterate in reverse filename order to end with filename order in the doc.
-    for i, stem in reversed(list(enumerate(stem_files))):
+    for i, stem in reversed(list(enumerate(sorted_stem_files))):
         label = _bare_label(stem.stem)
         color = _color_for(label, colors)
         offset = base * (i + 1)

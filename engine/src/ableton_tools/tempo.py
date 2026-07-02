@@ -1,20 +1,29 @@
 """Tempo detection (beat-tracking), sub-ms precision (autocorrelation),
 and real drift (inter-beat-interval regression)."""
 
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
 import librosa
 import numpy as np
 
 
-def _onset_env(path):
+def _onset_env(path: str | Path) -> tuple[np.ndarray, float]:
     y, sr = librosa.load(path, sr=None, mono=True)
     return librosa.onset.onset_strength(y=y, sr=sr), sr
 
 
-def detect_tempo(path, hint_bpm=None):
+def detect_tempo(path: str | Path, hint_bpm: float | None = None) -> dict[str, Any]:
     """Beat-tracked BPM plus first-onset time."""
     oenv, sr = _onset_env(path)
-    kw = {"start_bpm": float(hint_bpm)} if hint_bpm else {}
-    tempo_val, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr, **kw)
+    if hint_bpm:
+        tempo_val, beats = librosa.beat.beat_track(
+            onset_envelope=oenv, sr=sr, start_bpm=float(hint_bpm)
+        )
+    else:
+        tempo_val, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr)
     bpm = float(np.atleast_1d(tempo_val)[0])
     times = librosa.frames_to_time(beats, sr=sr)
     return {
@@ -24,7 +33,7 @@ def detect_tempo(path, hint_bpm=None):
     }
 
 
-def precise_tempo(path):
+def precise_tempo(path: str | Path) -> dict[str, Any]:
     """Sub-millisecond BPM via autocorrelation of the onset envelope with
     parabolic interpolation around the peak."""
     oenv, sr = _onset_env(path)
@@ -43,11 +52,13 @@ def precise_tempo(path):
     return {"precise_bpm": round(60.0 / period_s, 4), "period_s": float(period_s)}
 
 
-def tempo_drift(path, hint_bpm=None):
+def tempo_drift(path: str | Path, hint_bpm: float | None = None) -> dict[str, Any]:
     """Real tempo drift via inter-beat-interval (IBI) regression."""
     oenv, sr = _onset_env(path)
-    kw = {"start_bpm": float(hint_bpm)} if hint_bpm else {}
-    _, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr, **kw)
+    if hint_bpm:
+        _, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr, start_bpm=float(hint_bpm))
+    else:
+        _, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr)
     times = librosa.frames_to_time(beats, sr=sr)
     if len(times) < 4:
         return {"error": "too few beats", "n_beats": int(len(times))}
@@ -68,9 +79,9 @@ def tempo_drift(path, hint_bpm=None):
     }
 
 
-def analyze(path, hint_bpm=None):
+def analyze(path: str | Path, hint_bpm: float | None = None) -> dict[str, Any]:
     """Bundle detect_tempo + precise_tempo + tempo_drift into one report."""
-    out = {"file": str(path)}
+    out: dict[str, Any] = {"file": str(path)}
     out.update(detect_tempo(path, hint_bpm))
     out.update(precise_tempo(path))
     out.update(tempo_drift(path, hint_bpm))

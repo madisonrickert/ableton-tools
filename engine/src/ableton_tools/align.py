@@ -1,12 +1,14 @@
 """Time-alignment primitives: envelope cross-correlation + LSQ refinement."""
 
+from __future__ import annotations
+
 import numpy as np
 from scipy.signal import fftconvolve
 
 from .audio import envelope
 
 
-def xcorr_envelope(a, b):
+def xcorr_envelope(a: np.ndarray, b: np.ndarray) -> tuple[int, float]:
     """Return (lag, normalized_peak) where shifting `b` by `lag` best matches `a`.
 
     A positive lag means `b` should move right (b lags a); negative means left.
@@ -23,7 +25,9 @@ def xcorr_envelope(a, b):
     return lag, peak
 
 
-def best_offset_lsq_window(ref, sig, center_lag, refine):
+def best_offset_lsq_window(
+    ref: np.ndarray, sig: np.ndarray, center_lag: int, refine: int
+) -> tuple[int, float, float]:
     """Refine the integer lag of `sig` relative to `ref` within +/- refine of
     center_lag, minimizing ||ref - alpha*sig|| over the overlap.
 
@@ -56,7 +60,9 @@ def best_offset_lsq_window(ref, sig, center_lag, refine):
     return best
 
 
-def find_lag(ref, sig, sr, search_s=2.0, refine=128):
+def find_lag(
+    ref: np.ndarray, sig: np.ndarray, sr: float, search_s: float = 2.0, refine: int = 128
+) -> tuple[int, float, float]:
     """Two-stage lag finder: coarse via envelope xcorr, fine via sample LSQ."""
     env_sr = 4000
     ref_env, esr = envelope(ref, sr, env_sr)

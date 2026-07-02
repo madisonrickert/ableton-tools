@@ -4,6 +4,11 @@ All functions return raw numbers. Verdicts are stated by the operating
 Claude Code instance from these numbers + CANCEL_BANDS; no LLM call here.
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 
 from .align import find_lag
@@ -16,7 +21,7 @@ CANCEL_BANDS = {
 }
 
 
-def optimal_alpha(ref, sig):
+def optimal_alpha(ref: np.ndarray, sig: np.ndarray) -> float:
     """Least-squares gain alpha minimizing ||ref - alpha*sig||."""
     ref = np.asarray(ref, dtype=np.float64)
     sig = np.asarray(sig, dtype=np.float64)
@@ -24,7 +29,7 @@ def optimal_alpha(ref, sig):
     return float(np.dot(sig, ref) / denom) if denom else 0.0
 
 
-def pearson_r(a, b):
+def pearson_r(a: np.ndarray, b: np.ndarray) -> float:
     """Pearson correlation coefficient over the common length."""
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
@@ -35,7 +40,9 @@ def pearson_r(a, b):
     return float(np.dot(a, b) / denom) if denom else 0.0
 
 
-def windowed_cancellation(ref, sig, sr, win_s=10.0):
+def windowed_cancellation(
+    ref: np.ndarray, sig: np.ndarray, sr: float, win_s: float = 10.0
+) -> dict[str, Any]:
     """Per-window residual after subtracting the best-gain `sig` from `ref`.
 
     Returns median/worst/best cancellation in dB across windows and the count.
@@ -65,7 +72,13 @@ def windowed_cancellation(ref, sig, sr, win_s=10.0):
     }
 
 
-def stem_verify(master_path, stems_dir, win_s=10.0, max_lag_ms=200.0, pattern="*.wav"):
+def stem_verify(
+    master_path: str | Path,
+    stems_dir: str | Path,
+    win_s: float = 10.0,
+    max_lag_ms: float = 200.0,
+    pattern: str = "*.wav",
+) -> dict[str, Any]:
     """High-level: sum a stems folder, align to a master, measure cancellation."""
     master, sr = load_mono(master_path)
     mix, _, names = sum_stems(stems_dir, target_sr=sr, pattern=pattern)

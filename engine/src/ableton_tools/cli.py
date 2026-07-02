@@ -1,14 +1,26 @@
 """Single dispatcher for the Ableton tools engine. Every subcommand supports
 --json. `manifest` lists all subcommands. Unknown subcommands fail loudly."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
+from collections.abc import Callable
+from typing import Any
 
 from .errors import UsageError
 
 
-def _arg(name, *, required=False, default=None, help="", type=None, action=None):
+def _arg(
+    name: str,
+    *,
+    required: bool = False,
+    default: Any = None,
+    help: str = "",
+    type: type | None = None,
+    action: str | None = None,
+) -> dict[str, Any]:
     return {
         "name": name,
         "required": required,
@@ -24,7 +36,7 @@ _JSON = _arg("--json", action="store_true", help="JSON output")
 
 # Single source of truth: drives both build_parser() and `manifest --json`, so
 # the CLI surface and its self-description can never drift.
-SPEC = [
+SPEC: list[dict[str, Any]] = [
     {"name": "manifest", "desc": "List all subcommands (this command).", "args": [_JSON]},
     {
         "name": "stem-verify",
@@ -159,15 +171,15 @@ SPEC = [
 ]
 
 
-def _emit(obj, as_json, human):
+def _emit(obj: Any, as_json: bool, human: Callable[[Any], Any]) -> None:
     if as_json:
         print(json.dumps(obj, indent=2))
     else:
         human(obj)
 
 
-def _manifest_entry(c):
-    out = {"name": c["name"], "desc": c.get("desc", "")}
+def _manifest_entry(c: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {"name": c["name"], "desc": c.get("desc", "")}
     if "args" in c:
         out["args"] = [
             {k: a[k] for k in ("name", "required", "default", "help")} for a in c["args"]
@@ -177,7 +189,7 @@ def _manifest_entry(c):
     return out
 
 
-def _cmd_manifest(args):
+def _cmd_manifest(args: argparse.Namespace) -> int:
     entries = [_manifest_entry(c) for c in SPEC]
     _emit(
         {"subcommands": entries},
@@ -187,7 +199,7 @@ def _cmd_manifest(args):
     return 0
 
 
-def _cmd_stem_verify(args):
+def _cmd_stem_verify(args: argparse.Namespace) -> int:
     from . import cancel
 
     out = cancel.stem_verify(
@@ -204,7 +216,7 @@ def _cmd_stem_verify(args):
     return 0
 
 
-def _cmd_tempo(args):
+def _cmd_tempo(args: argparse.Namespace) -> int:
     from . import tempo
 
     out = tempo.analyze(args.file, hint_bpm=args.hint_bpm)
@@ -218,7 +230,7 @@ def _cmd_tempo(args):
     return 0
 
 
-def _cmd_drift(args):
+def _cmd_drift(args: argparse.Namespace) -> int:
     from . import align, audio
 
     master, sr = audio.load_mono(args.master)
@@ -226,7 +238,7 @@ def _cmd_drift(args):
     # per-window lag trace
     win = int(args.win * sr)
     m = min(len(master), len(mix))
-    rows = []
+    rows: list[dict[str, Any]] = []
     for start in range(0, m - win + 1, win):
         r = master[start : start + win]
         s = mix[start : start + win]
@@ -257,7 +269,7 @@ def _cmd_drift(args):
     return 0
 
 
-def _cmd_midi(args):
+def _cmd_midi(args: argparse.Namespace) -> int:
     from . import midi, transcribe
 
     if args.midi_cmd == "transcribe":
@@ -281,7 +293,7 @@ def _cmd_midi(args):
     raise SystemExit("midi requires a subcommand: transcribe | compare")
 
 
-def _load_manifest(path):
+def _load_manifest(path: str) -> dict[str, Any]:
     try:
         with open(path) as fh:
             return json.load(fh)
@@ -295,7 +307,9 @@ def _load_manifest(path):
         ) from None
 
 
-def _als_commit(args, new_xml, diff, op):
+def _als_commit(
+    args: argparse.Namespace, new_xml: str, diff: dict[str, Any], op: str
+) -> dict[str, Any]:
     """Shared commit/dry-run logic for mutating als subcommands."""
     from . import als
 
@@ -321,7 +335,7 @@ def _als_commit(args, new_xml, diff, op):
     return {"committed": True, "backup": backup_path, "op": op, "diff": diff}
 
 
-def _cmd_als(args):
+def _cmd_als(args: argparse.Namespace) -> int:
     from . import als
 
     if args.als_cmd == "inspect":
@@ -404,10 +418,10 @@ def _cmd_als(args):
     return 0
 
 
-def _add_arg(parser, a):
+def _add_arg(parser: argparse.ArgumentParser, a: dict[str, Any]) -> None:
     """Translate one SPEC arg dict into an argparse add_argument call."""
     name = a["name"]
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     if a.get("help"):
         kwargs["help"] = a["help"]
     if a.get("action"):
@@ -424,7 +438,7 @@ def _add_arg(parser, a):
     parser.add_argument(name, **kwargs)
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     from importlib.metadata import PackageNotFoundError
     from importlib.metadata import version as _pkg_version
 
@@ -453,7 +467,7 @@ def build_parser():
     return p
 
 
-DISPATCH = {
+DISPATCH: dict[str, Callable[[argparse.Namespace], int]] = {
     "manifest": _cmd_manifest,
     "stem-verify": _cmd_stem_verify,
     "tempo": _cmd_tempo,
@@ -463,7 +477,7 @@ DISPATCH = {
 }
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["help"]:
         rest = argv[1:]

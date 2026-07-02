@@ -1,20 +1,24 @@
 """MIDI timeline analysis: parse to absolute seconds, align onsets, compare
 chroma profiles, and fit timing drift between transcriptions."""
 
+from __future__ import annotations
+
 import itertools
+from pathlib import Path
+from typing import Any
 
 import mido
 import numpy as np
 
 
-def load_notes(path):
+def load_notes(path: str | Path) -> list[dict[str, Any]]:
     """Parse a MIDI file into a sorted list of {onset_s, pitch, dur_s},
     honoring tempo changes across all tracks."""
     mid = mido.MidiFile(path)
     tpb = mid.ticks_per_beat
 
     # Build a global tempo map of (abs_tick, tempo_us_per_beat).
-    tempo_map = [(0, 500000)]
+    tempo_map: list[tuple[int, int]] = [(0, 500000)]
     for track in mid.tracks:
         t = 0
         for msg in track:
@@ -23,7 +27,7 @@ def load_notes(path):
                 tempo_map.append((t, msg.tempo))
     tempo_map = sorted(set(tempo_map))
 
-    def tick_to_sec(tick):
+    def tick_to_sec(tick: int) -> float:
         sec = 0.0
         prev_tick = 0
         cur = 500000
@@ -35,10 +39,10 @@ def load_notes(path):
         sec += mido.tick2second(tick - prev_tick, tpb, cur)
         return sec
 
-    notes = []
+    notes: list[dict[str, Any]] = []
     for track in mid.tracks:
         t = 0
-        on = {}
+        on: dict[int, list[int]] = {}
         for msg in track:
             t += msg.time
             if msg.type == "note_on" and msg.velocity > 0:
@@ -58,12 +62,14 @@ def load_notes(path):
     return notes
 
 
-def align_onsets(a, b, tol_s=0.05, pitch_class=True):
+def align_onsets(
+    a: list[dict[str, Any]], b: list[dict[str, Any]], tol_s: float = 0.05, pitch_class: bool = True
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """Greedy nearest-onset matching within tol_s; optionally pitch-class aware.
     Returns a list of (note_a, note_b) pairs."""
     bs = sorted(b, key=lambda n: n["onset_s"])
-    used = set()
-    pairs = []
+    used: set[int] = set()
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for na in sorted(a, key=lambda n: n["onset_s"]):
         best_j = None
         best_d = tol_s + 1e-9
@@ -85,7 +91,7 @@ def align_onsets(a, b, tol_s=0.05, pitch_class=True):
     return pairs
 
 
-def chroma_profile(notes):
+def chroma_profile(notes: list[dict[str, Any]]) -> np.ndarray:
     """Duration-weighted 12-bin pitch-class histogram, normalized to sum 1."""
     v = np.zeros(12)
     for n in notes:
@@ -94,14 +100,16 @@ def chroma_profile(notes):
     return v / s if s > 0 else v
 
 
-def chroma_cosine(a, b):
+def chroma_cosine(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> float:
     """Cosine similarity of two note lists' chroma profiles."""
     pa, pb = chroma_profile(a), chroma_profile(b)
     na, nb = np.linalg.norm(pa), np.linalg.norm(pb)
     return float(pa @ pb / (na * nb)) if na > 0 and nb > 0 else 0.0
 
 
-def drift_fit(a, b, tol_s=0.1):
+def drift_fit(
+    a: list[dict[str, Any]], b: list[dict[str, Any]], tol_s: float = 0.1
+) -> dict[str, Any]:
     """Fit dt = offset + slope*t over aligned anchors (b relative to a)."""
     pairs = align_onsets(a, b, tol_s=tol_s, pitch_class=True)
     if len(pairs) < 3:
@@ -118,10 +126,13 @@ def drift_fit(a, b, tol_s=0.1):
     }
 
 
-def compare(paths):
+def compare(paths: list[str | Path]) -> dict[str, Any]:
     """Pairwise comparison of 2+ MIDI files: chroma cosine + drift fit."""
     loaded = [(p, load_notes(p)) for p in paths]
-    out = {"files": [{"path": p, "n_notes": len(n)} for p, n in loaded], "pairs": []}
+    out: dict[str, Any] = {
+        "files": [{"path": p, "n_notes": len(n)} for p, n in loaded],
+        "pairs": [],
+    }
     for (pa, na), (pb, nb) in itertools.combinations(loaded, 2):
         entry = {"a": pa, "b": pb, "chroma_cosine": round(chroma_cosine(na, nb), 4)}
         entry.update({f"drift_{k}": v for k, v in drift_fit(na, nb).items()})

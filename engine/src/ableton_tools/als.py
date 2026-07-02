@@ -5,28 +5,31 @@ the CLI handles backup + commit. inspect() uses ElementTree; patchers use
 targeted regex to preserve the original file's formatting.
 """
 
+from __future__ import annotations
+
 import gzip
 import re
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any, cast
 
 from .errors import UsageError
 
 
-def read_als(path):
+def read_als(path: str | Path) -> str:
     """Return the decompressed XML text of a .als file."""
     with gzip.open(str(path), "rb") as fh:
         return fh.read().decode("utf-8")
 
 
-def write_als(path, xml):
+def write_als(path: str | Path, xml: str) -> None:
     """Gzip-write XML text to a .als file."""
     with gzip.open(str(path), "wb") as fh:
         fh.write(xml.encode("utf-8"))
 
 
-def backup(path, op):
+def backup(path: str | Path, op: str) -> str:
     """Copy a .als into the project's `Backup/` folder using Ableton's native
     auto-backup naming: `<basename> [YYYY-MM-DD HHMMSS].als`. The Backup folder
     is created if it does not exist. `op` is accepted for API stability but is
@@ -54,19 +57,21 @@ def backup(path, op):
     return str(dest)
 
 
-def _attr(elem, child_tag, attr="Value", default=None):
+def _attr(
+    elem: ET.Element, child_tag: str, attr: str = "Value", default: str | None = None
+) -> str | None:
     c = elem.find(child_tag)
     return c.get(attr) if c is not None else default
 
 
-def inspect_xml(xml):
+def inspect_xml(xml: str) -> dict[str, Any]:
     """Parse XML text into a summary dict (tempo, tracks, clips, refs)."""
     root = ET.fromstring(xml)
-    info = {"tempo": None, "tracks": [], "clips": []}
+    info: dict[str, Any] = {"tempo": None, "tracks": [], "clips": []}
 
     manual = root.find(".//MasterTrack//Tempo/Manual")
     if manual is not None:
-        info["tempo"] = float(manual.get("Value"))
+        info["tempo"] = float(cast(str, manual.get("Value")))
 
     for track in root.iter():
         if not track.tag.endswith("Track") or track.tag in ("MasterTrack", "Tracks"):
@@ -86,8 +91,12 @@ def inspect_xml(xml):
         info["clips"].append(
             {
                 "name": name,
-                "current_start": float(start.get("Value")) if start is not None else None,
-                "current_end": float(end.get("Value")) if end is not None else None,
+                "current_start": (
+                    float(cast(str, start.get("Value"))) if start is not None else None
+                ),
+                "current_end": (
+                    float(cast(str, end.get("Value"))) if end is not None else None
+                ),
                 "relative_path": rel.get("Value") if rel is not None else None,
                 "is_warped": (warped.get("Value") == "true") if warped is not None else None,
             }
@@ -95,14 +104,14 @@ def inspect_xml(xml):
     return info
 
 
-def inspect(path):
+def inspect(path: str | Path) -> dict[str, Any]:
     """inspect_xml() applied to a file on disk, with the path attached."""
     info = inspect_xml(read_als(path))
     info["file"] = str(path)
     return info
 
 
-def set_tempo(xml, bpm):
+def set_tempo(xml: str, bpm: float) -> str:
     """Set the MasterTrack's tempo Manual Value (project tempo). Anchored to
     the MasterTrack block so a tempo-bearing device elsewhere is never hit."""
     m = re.search(r"<MasterTrack>.*?</MasterTrack>", xml, re.DOTALL)
@@ -119,7 +128,7 @@ def set_tempo(xml, bpm):
     return xml[: m.start()] + block + xml[m.end() :]
 
 
-def rename_refs(xml, mapping):
+def rename_refs(xml: str, mapping: dict[str, str]) -> tuple[str, dict[str, Any]]:
     """Replace RelativePath/Path values per `mapping` (old_rel -> new_rel).
     Only <RelativePath> and <Path> leaves are patched; any other attribute
     whose value happens to equal an old path is left alone."""
@@ -145,11 +154,11 @@ def rename_refs(xml, mapping):
     return out, {"changed": changed, "mapping": mapping}
 
 
-def _clip_block(xml, clip_name):
+def _clip_block(xml: str, clip_name: str) -> tuple[int, int]:
     """Return (start_idx, end_idx) of the unique <AudioClip>...</AudioClip>
     block whose <Name Value="clip_name"/> matches. Raises KeyError when the
     name is missing or matches more than one clip."""
-    hits = []
+    hits: list[tuple[int, int]] = []
     for m in re.finditer(r"<AudioClip\b.*?</AudioClip>", xml, re.DOTALL):
         if re.search(rf'<Name Value="{re.escape(clip_name)}"', m.group(0)):
             hits.append((m.start(), m.end()))
@@ -167,7 +176,9 @@ def _clip_block(xml, clip_name):
     return hits[0]
 
 
-def move_clip_to_beat(xml, clip_name, beat, dur_s, bpm):
+def move_clip_to_beat(
+    xml: str, clip_name: str, beat: float, dur_s: float, bpm: float
+) -> tuple[str, dict[str, Any]]:
     """Set a clip's CurrentStart to `beat` and CurrentEnd to beat + length."""
     s, e = _clip_block(xml, clip_name)
     block = xml[s:e]
@@ -184,7 +195,9 @@ def move_clip_to_beat(xml, clip_name, beat, dur_s, bpm):
     return new_xml, {"clip": clip_name, "to_beat": beat, "end_beat": round(beat + length_beats, 6)}
 
 
-def warp_to_grid(xml, clip_names, bpm, durations):
+def warp_to_grid(
+    xml: str, clip_names: list[str], bpm: float, durations: dict[str, float]
+) -> tuple[str, dict[str, Any]]:
     """Lock each named clip to the grid with two warp markers (0 and end),
     at the given project bpm. `durations` maps clip_name -> seconds."""
     warped = []
@@ -215,7 +228,7 @@ def warp_to_grid(xml, clip_names, bpm, durations):
     return out, {"warped": warped, "bpm": bpm}
 
 
-def verify_refs(xml, base_dir):
+def verify_refs(xml: str, base_dir: str | Path) -> list[str]:
     """Return RelativePath values that do not resolve under base_dir."""
     base = Path(base_dir)
     missing = []
@@ -225,7 +238,7 @@ def verify_refs(xml, base_dir):
     return missing
 
 
-def _find_track_block(xml, src_track_id):
+def _find_track_block(xml: str, src_track_id: str | int) -> tuple[int, int, str]:
     """Locate `<{Tag}Track Id="src_track_id" ...>...</{Tag}Track>` in `xml`.
     Returns (start, end, tag) where (start, end) bound the full block and tag
     is e.g. "Audio" or "Midi". Tolerates extra attributes after Id
@@ -245,7 +258,13 @@ def _find_track_block(xml, src_track_id):
     return m.start(), end + len(f"</{tag}Track>"), tag
 
 
-def clone_track(xml, src_track_id, new_name, new_id, id_offset=None):
+def clone_track(
+    xml: str,
+    src_track_id: str | int,
+    new_name: str,
+    new_id: int,
+    id_offset: int | None = None,
+) -> str:
     """PRIMITIVE (not a command): duplicate a track block, give every internal
     `Id="N"` a unique value via `id_offset` (default: auto-allocate above the
     document's current max Id), set the top-level track Id and EffectiveName,
