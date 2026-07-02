@@ -80,8 +80,17 @@ derivation, color table source) live in `engine/references/als-format.md`.
   ```
   uv run --project ableton-suite/engine --group dev pytest
   uvx ruff check ableton-suite/engine
-  uvx pyright ableton-suite/engine/src
+  uvx pyright --project ableton-suite/engine ableton-suite/engine/src
   ```
+
+  Note the explicit `--project ableton-suite/engine` on the pyright
+  invocation: `engine/pyproject.toml` sets `venvPath = "."` (relative to
+  the config file), and pyright only resolves that correctly once it
+  knows where the config lives. Running `uvx pyright ableton-suite/engine/src`
+  from the repo root without `--project` leaves pyright to auto-discover
+  the config relative to the invocation cwd instead, so it can't find
+  `engine/.venv` and reports spurious `reportMissingImports` errors on
+  every third-party dependency (numpy, scipy, soundfile, mido, librosa).
 
 - **The engine lives here now.** The old `~/.claude/skills/ableton-*`
   installed copies are gone. Edit the engine and skills in this repo, then
