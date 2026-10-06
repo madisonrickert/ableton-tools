@@ -73,6 +73,26 @@ SPEC: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "levels",
+        "desc": "Per-file duration, rate, dBFS, silence flag (and r vs --ref).",
+        "args": [_arg("folder", required=True), _arg("--pattern", default="*.wav"),
+                 _arg("--ref", help="reference file for lag-0 correlation"), _JSON],
+    },
+    {
+        "name": "locate",
+        "desc": "Find where a fragment occurs inside a reference (offset + r).",
+        "args": [_arg("--fragment", required=True), _arg("--ref", required=True),
+                 _arg("--env-hz", type=float, default=100.0), _arg("--top", type=int, default=3),
+                 _JSON],
+    },
+    {
+        "name": "warp-check",
+        "desc": "EXPERIMENTAL: do the master's warp markers sit on real beats, and do "
+        "warped clips share its map?",
+        "args": [_arg("als", required=True), _arg("--track"),
+                 _arg("--audio", help="audio to analyze (default: the clip's sample)"), _JSON],
+    },
+    {
         "name": "midi",
         "desc": "MIDI tools.",
         "subcommands": [
@@ -355,6 +375,38 @@ def _cmd_drift(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_levels(args: argparse.Namespace) -> int:
+    from . import analysis
+
+    out = analysis.levels(args.folder, pattern=args.pattern, ref=args.ref)
+    _emit(out, args.json, lambda o: [
+        print(f"{Path(f['file']).name:40s} {f['dbfs']:7.1f} dBFS {f['duration_s']:8.2f}s"
+              + ("  SILENT" if f["silent"] else "")
+              + (f"  r={f['r_vs_ref']}" if "r_vs_ref" in f else ""))
+        for f in o["files"]])
+    return 0
+
+
+def _cmd_locate(args: argparse.Namespace) -> int:
+    from . import analysis
+
+    out = analysis.locate(args.fragment, args.ref, env_hz=args.env_hz, top=args.top)
+    _emit(out, args.json, lambda o: print(
+        f"{o['band']}: " + ", ".join(f"{m['offset_s']}s (r={m['r']})" for m in o["matches"])))
+    return 0
+
+
+def _cmd_warp_check(args: argparse.Namespace) -> int:
+    from . import analysis
+
+    out = analysis.warp_check(args.als, track=args.track, audio_path=args.audio)
+    _emit(out, args.json, lambda o: print(
+        f"warp-map bpm={o['warp_map_bpm']} markers={o['marker_count']} "
+        f"beat-align median={o['beat_alignment_ms']['median']}ms "
+        f"shared={len(o['sync']['shared'])} differs={o['sync']['differs']}"))
+    return 0
+
+
 def _cmd_midi(args: argparse.Namespace) -> int:
     from . import midi, transcribe
 
@@ -621,6 +673,9 @@ DISPATCH: dict[str, Callable[[argparse.Namespace], int]] = {
     "stem-verify": _cmd_stem_verify,
     "tempo": _cmd_tempo,
     "drift": _cmd_drift,
+    "levels": _cmd_levels,
+    "locate": _cmd_locate,
+    "warp-check": _cmd_warp_check,
     "midi": _cmd_midi,
     "als": _cmd_als,
 }
