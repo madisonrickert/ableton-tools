@@ -185,7 +185,8 @@ def _write_project(tmp_path, dirname: str, fixture_name: str, als_name: str,
     for rel, secs in wavs.items():
         p = proj / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(str(p), (0.01 * rng.standard_normal(int(secs * 48000))).astype(np.float32), 48000)
+        noise = 0.01 * rng.standard_normal(int(secs * 48000))
+        sf.write(str(p), noise.astype(np.float32), 48000)
     return als
 
 

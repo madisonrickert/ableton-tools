@@ -25,7 +25,8 @@ def sanitize(xml: str) -> str:
     xml = re.sub(r'(<Path Value=")/[^"]*\.(?:mp3|wav|aif|aiff)(")',
                  r"\g<1>/Users/test/Project/Samples/master.wav\g<2>", xml)
     # Browser hints that spell out the sample's project path.
-    xml = re.sub(r'(<BrowserContentPath Value="query:CurrentProject#)[^"]*\.(?:mp3|wav|aif|aiff)(")',
+    xml = re.sub(r'(<BrowserContentPath Value="query:CurrentProject#)'
+                 r'[^"]*\.(?:mp3|wav|aif|aiff)(")',
                  r"\g<1>Samples:master.wav\g<2>", xml)
     # Any remaining absolute user / volume paths.
     xml = re.sub(r"/Users/[^/\"]+/", "/Users/test/", xml)
@@ -54,7 +55,8 @@ def sanitize(xml: str) -> str:
 
 def main() -> None:
     src, dst = Path(sys.argv[1]), Path(sys.argv[2])
-    xml = gzip.open(src, "rb").read().decode("utf-8")
+    with gzip.open(src, "rb") as fh:
+        xml = fh.read().decode("utf-8")
     out = sanitize(xml)
     leaks = re.findall(r"(?:/Volumes/|nsh)", out)
     if leaks:
