@@ -3,6 +3,7 @@
 # from pyproject.toml. The heavy `transcribe` extra is added only for
 # `ableton midi transcribe`, keeping the default environment light.
 set -euo pipefail
+command -v uv >/dev/null 2>&1 || { echo "ableton-tools needs uv: https://docs.astral.sh/uv/" >&2; exit 127; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXTRA=()
 if [ "${1:-}" = "midi" ] && [ "${2:-}" = "transcribe" ]; then

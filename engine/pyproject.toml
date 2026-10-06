@@ -17,6 +17,14 @@ transcribe = ["basic-pitch>=0.4"]
 [dependency-groups]
 dev = ["pytest>=8", "pytest-cov>=5"]
 
+[tool.uv]
+# Intel macOS: numba>=0.63 / llvmlite>=0.46 ship no x86_64 macOS wheels and would
+# need a source build against LLVM. Every other platform keeps the latest versions.
+constraint-dependencies = [
+    "numba<0.63; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "llvmlite<0.46; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
