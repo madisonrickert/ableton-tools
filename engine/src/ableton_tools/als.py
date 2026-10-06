@@ -1,8 +1,9 @@
 """Read, inspect, and safely patch Ableton `.als` files (gzipped XML).
 
-Mutating helpers return (new_xml, diff) and never write to disk themselves;
-the CLI handles backup + commit. inspect() uses ElementTree; patchers use
-targeted regex to preserve the original file's formatting.
+Mutating helpers take and return XML text (`(new_xml, diff)`) and never write
+to disk; the CLI's commit pipeline (commit.py) handles guard/validate/backup/
+write. All addressing goes through `alsxml` (span index, direct-child paths),
+and edits are byte splices, so every untouched byte is preserved.
 """
 
 from __future__ import annotations
@@ -10,10 +11,10 @@ from __future__ import annotations
 import gzip
 import re
 import time
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
+from .alsxml import Doc, Node, offset_ids, set_next_pointee
 from .errors import UsageError
 
 
@@ -57,50 +58,106 @@ def backup(path: str | Path, op: str) -> str:
     return str(dest)
 
 
-def _attr(
-    elem: ET.Element, child_tag: str, attr: str = "Value", default: str | None = None
-) -> str | None:
-    c = elem.find(child_tag)
-    return c.get(attr) if c is not None else default
+TRACK_KIND = {"AudioTrack": "audio", "MidiTrack": "midi", "GroupTrack": "group",
+              "ReturnTrack": "return"}
+
+
+def _f(node: Node | None) -> float | None:
+    v = node.value() if node is not None else None
+    try:
+        return float(v) if v is not None else None
+    except ValueError:
+        return None
+
+
+def _num(v: float) -> str:
+    return str(int(v)) if float(v).is_integer() else repr(float(v))
+
+
+def warp_markers(clip: Node) -> list[tuple[float, float]]:
+    wm = clip.child("WarpMarkers")
+    if wm is None:
+        return []
+    return [(float(m.attrs["SecTime"]), float(m.attrs["BeatTime"]))
+            for m in wm.children() if "SecTime" in m.attrs]
+
+
+def warp_map_bpm(clip: Node) -> float | None:
+    """Average tempo implied by a clip's warp map (the native-speed BPM)."""
+    mk = warp_markers(clip)
+    if len(mk) < 2 or mk[-1][0] <= mk[0][0]:
+        return None
+    return round((mk[-1][1] - mk[0][1]) / (mk[-1][0] - mk[0][0]) * 60.0, 4)
+
+
+def _clip_name(clip: Node) -> str | None:
+    """The clip's OWN name (direct child), never ScaleInformation/Name."""
+    n = clip.child("Name")
+    return n.value() if n is not None else None
+
+
+def _clip_info(doc: Doc, track: Node | None, clip: Node, location: str) -> dict[str, Any]:
+    ref = clip.path("SampleRef/FileRef")
+    rel = ref.child("RelativePath") if ref is not None else None
+    rtype = ref.child("RelativePathType") if ref is not None else None
+    warped = clip.child("IsWarped")
+    return {
+        "name": _clip_name(clip),
+        "track": doc.track_name(track) if track is not None else None,
+        "location": location,
+        "time": _f_attr(clip, "Time"),
+        "current_start": _f(clip.child("CurrentStart")),
+        "current_end": _f(clip.child("CurrentEnd")),
+        "relative_path": rel.value() if rel is not None else None,
+        "relative_path_type": rtype.value() if rtype is not None else None,
+        "is_warped": (warped.value() == "true") if warped is not None else None,
+        "warp_marker_count": len(warp_markers(clip)),
+        "warp_map_bpm": warp_map_bpm(clip),
+    }
+
+
+def _f_attr(n: Node, name: str) -> float | None:
+    try:
+        return float(n.attrs[name]) if name in n.attrs else None
+    except ValueError:
+        return None
 
 
 def inspect_xml(xml: str) -> dict[str, Any]:
-    """Parse XML text into a summary dict (tempo, tracks, clips, refs)."""
-    root = ET.fromstring(xml)
-    info: dict[str, Any] = {"tempo": None, "tracks": [], "clips": []}
-
-    manual = root.find(".//MasterTrack//Tempo/Manual")
-    if manual is not None:
-        info["tempo"] = float(cast(str, manual.get("Value")))
-
-    for track in root.iter():
-        if not track.tag.endswith("Track") or track.tag in ("MasterTrack", "Tracks"):
-            continue
-        name_el = track.find("./Name/EffectiveName")
-        if name_el is not None:
-            info["tracks"].append(
-                {"tag": track.tag, "id": track.get("Id"), "name": name_el.get("Value")}
-            )
-
-    for clip in root.iter("AudioClip"):
-        name = _attr(clip, "Name", default=None)
-        start = clip.find("CurrentStart")
-        end = clip.find("CurrentEnd")
-        rel = clip.find(".//SampleRef/FileRef/RelativePath")
-        warped = clip.find("IsWarped")
-        info["clips"].append(
-            {
-                "name": name,
-                "current_start": (
-                    float(cast(str, start.get("Value"))) if start is not None else None
-                ),
-                "current_end": (
-                    float(cast(str, end.get("Value"))) if end is not None else None
-                ),
-                "relative_path": rel.get("Value") if rel is not None else None,
-                "is_warped": (warped.get("Value") == "true") if warped is not None else None,
-            }
-        )
+    """Summary of a set: tempo, tracks (kind, group, output, mute, devices),
+    the main track, and every Session/Arrangement clip."""
+    doc = Doc(xml)
+    info: dict[str, Any] = {"tempo": get_tempo(xml), "tracks": [], "main": None, "clips": []}
+    for t in doc.tracks():
+        g = t.child("TrackGroupId")
+        out = t.path("DeviceChain/AudioOutputRouting/Target")
+        speaker = t.path("DeviceChain/Mixer/Speaker/Manual")
+        devs = t.path("DeviceChain/DeviceChain/Devices")
+        info["tracks"].append({
+            "tag": t.tag,
+            "id": t.attrs.get("Id"),
+            "name": doc.track_name(t),
+            "kind": TRACK_KIND.get(t.tag, t.tag),
+            "group_id": g.value() if g is not None and g.value() != "-1" else None,
+            "output": out.value() if out is not None else None,
+            "muted": (speaker.value() == "false") if speaker is not None else False,
+            "devices": len(devs.children()) if devs is not None else 0,
+        })
+        for c in doc.arrangement_clips(t):
+            info["clips"].append(_clip_info(doc, t, c, "arrangement"))
+        for c in doc.session_clips(t):
+            info["clips"].append(_clip_info(doc, t, c, "session"))
+    try:
+        main = doc.main_track()
+        devs = main.path("DeviceChain/DeviceChain/Devices")
+        name = main.path("Name/EffectiveName")
+        info["main"] = {"tag": main.tag, "name": name.value() if name is not None else "Main",
+                        "devices": len(devs.children()) if devs is not None else 0}
+    except UsageError:
+        pass
+    if not info["clips"]:  # legacy/minimal docs: clips outside any <Tracks> track
+        for c in doc.nodes("AudioClip"):
+            info["clips"].append(_clip_info(doc, None, c, "unknown"))
     return info
 
 
@@ -111,88 +168,111 @@ def inspect(path: str | Path) -> dict[str, Any]:
     return info
 
 
+def _tempo_node(doc: Doc) -> Node:
+    main = doc.main_track()
+    manual = main.path("DeviceChain/Mixer/Tempo/Manual")
+    if manual is None:
+        raise UsageError(f"{main.tag} has no <Tempo><Manual> element to set",
+                         hint="unexpected main-track layout; inspect the .als")
+    return manual
+
+
+def get_tempo(xml: str) -> float | None:
+    """Project tempo from the MainTrack (Live 12) or MasterTrack (Live 11)."""
+    try:
+        return _f(_tempo_node(Doc(xml)))
+    except UsageError:
+        return None
+
+
 def set_tempo(xml: str, bpm: float) -> str:
-    """Set the MasterTrack's tempo Manual Value (project tempo). Anchored to
-    the MasterTrack block so a tempo-bearing device elsewhere is never hit."""
-    m = re.search(r"<MasterTrack>.*?</MasterTrack>", xml, re.DOTALL)
-    if not m:
-        raise UsageError("No <MasterTrack> block found in document")
-    block, n = re.subn(
-        r'(<Tempo>\s*<Manual Value=")[\d.]+(")',
-        rf"\g<1>{bpm:g}\g<2>",
-        m.group(0),
-        count=1,
-    )
-    if n == 0:
-        raise UsageError("MasterTrack has no <Tempo><Manual> element to set")
-    return xml[: m.start()] + block + xml[m.end() :]
+    """Set the project tempo (MainTrack/MasterTrack Tempo Manual) only."""
+    doc = Doc(xml)
+    doc.set_value(_tempo_node(doc), _num(bpm))
+    return doc.apply().to_str()
 
 
 def rename_refs(xml: str, mapping: dict[str, str]) -> tuple[str, dict[str, Any]]:
     """Replace RelativePath/Path values per `mapping` (old_rel -> new_rel).
-    Only <RelativePath> and <Path> leaves are patched; any other attribute
-    whose value happens to equal an old path is left alone."""
+    Only <RelativePath> and <Path> leaves are patched; any other element whose
+    value happens to equal an old path is left alone. Absolute <Path> leaves
+    ending in the old filename get the new filename."""
+    doc = Doc(xml)
     changed = 0
-    out = xml
     for old, new in mapping.items():
-        old_name = Path(old).name
-        new_name = Path(new).name
-        before = out
-        out = re.sub(
-            rf'(<(?:RelativePath|Path) Value="){re.escape(old)}(")',
-            lambda m, new=new: m.group(1) + new + m.group(2),  # noqa: B023
-            out,
-        )
-        # also patch absolute Path leaves that end with the old filename
-        out = re.sub(
-            rf'(<Path Value="[^"]*/){re.escape(old_name)}(")',
-            lambda m, new_name=new_name: m.group(1) + new_name + m.group(2),  # noqa: B023
-            out,
-        )
-        if out != before:
-            changed += 1
-    return out, {"changed": changed, "mapping": mapping}
+        old_name, new_name = Path(old).name, Path(new).name
+        hit = False
+        for n in doc.nodes("RelativePath") + doc.nodes("Path"):
+            v = n.value() or ""
+            if n.tag in ("RelativePath", "Path") and v == old:
+                doc.set_value(n, new)
+                hit = True
+            elif n.tag == "Path" and v.endswith("/" + old_name):
+                doc.set_value(n, v[: -len(old_name)] + new_name)
+                hit = True
+        changed += hit
+    return doc.apply().to_str(), {"changed": changed, "mapping": mapping}
 
 
-def _clip_block(xml: str, clip_name: str) -> tuple[int, int]:
-    """Return (start_idx, end_idx) of the unique <AudioClip>...</AudioClip>
-    block whose <Name Value="clip_name"/> matches. Raises KeyError when the
-    name is missing or matches more than one clip."""
-    hits: list[tuple[int, int]] = []
-    for m in re.finditer(r"<AudioClip\b.*?</AudioClip>", xml, re.DOTALL):
-        if re.search(rf'<Name Value="{re.escape(clip_name)}"', m.group(0)):
-            hits.append((m.start(), m.end()))
-    if not hits:
+def _all_clips(doc: Doc) -> list[Node]:
+    return sorted(doc.nodes("AudioClip") + doc.nodes("MidiClip"), key=lambda n: n.start)
+
+
+def find_clip(doc: Doc, clip_name: str, *, arrangement_first: bool = True) -> Node:
+    """The unique clip named `clip_name`. With arrangement_first, a name that is
+    unique among Arrangement clips wins even if a Session clip shares it
+    (arrangement operations ignore Session clips)."""
+    named = [c for c in _all_clips(doc) if _clip_name(c) == clip_name]
+    if arrangement_first and len(named) > 1:
+        arr = [c for t in doc.tracks() for c in doc.arrangement_clips(t) if c in named]
+        if len(arr) == 1:
+            return arr[0]
+    if not named:
         raise UsageError(
-            f"AudioClip named {clip_name!r} not found",
+            f"Clip named {clip_name!r} not found",
             hint="run `ableton als inspect FILE.als --json` to list clip names",
         )
-    if len(hits) > 1:
+    if len(named) > 1:
         raise UsageError(
-            f"AudioClip name {clip_name!r} is ambiguous ({len(hits)} matches); "
+            f"Clip name {clip_name!r} is ambiguous ({len(named)} matches); "
             "rename one clip or address it by a unique name",
             hint="run `ableton als inspect FILE.als --json` to list clip names",
         )
-    return hits[0]
+    return named[0]
+
+
+def _clip_block(xml: str, clip_name: str) -> tuple[int, int]:
+    """Back-compat: byte span of the unique clip named clip_name (no
+    arrangement preference)."""
+    c = find_clip(Doc(xml), clip_name, arrangement_first=False)
+    return c.start, c.end
 
 
 def move_clip_to_beat(
-    xml: str, clip_name: str, beat: float, dur_s: float, bpm: float
+    xml: str, clip_name: str, beat: float, dur_s: float | None = None, bpm: float | None = None
 ) -> tuple[str, dict[str, Any]]:
-    """Set a clip's CurrentStart to `beat` and CurrentEnd to beat + length."""
-    s, e = _clip_block(xml, clip_name)
-    block = xml[s:e]
-    length_beats = dur_s * bpm / 60.0
-    block = re.sub(r'(<CurrentStart Value=")[\d.]+(")', rf"\g<1>{beat:g}\g<2>", block)
-    block = re.sub(r'(<CurrentEnd Value=")[\d.]+(")', rf"\g<1>{beat + length_beats:g}\g<2>", block)
-    # Arrangement position: the AudioClip open tag's Time attribute is the
-    # clip's arrangement start in beats and must track CurrentStart. Absent
-    # on pure Session-view clips, hence subn without a required count.
-    block, _ = re.subn(
-        r'(<AudioClip\b[^>]*\bTime=")[\d.]+(")', rf"\g<1>{beat:g}\g<2>", block, count=1
-    )
-    new_xml = xml[:s] + block + xml[e:]
-    return new_xml, {"clip": clip_name, "to_beat": beat, "end_beat": round(beat + length_beats, 6)}
+    """Move a clip so it starts at `beat`: sets the arrangement `Time` attribute
+    and CurrentStart/CurrentEnd. Without dur_s the clip's current length (in
+    beats) is preserved; with dur_s and bpm the length is dur_s*bpm/60."""
+    doc = Doc(xml)
+    c = find_clip(doc, clip_name)
+    cs, ce = _f(c.child("CurrentStart")), _f(c.child("CurrentEnd"))
+    if dur_s is not None:
+        if bpm is None:
+            raise UsageError("--dur-s needs --bpm", hint="pass both, or neither to keep length")
+        length = dur_s * bpm / 60.0
+    else:
+        if cs is None or ce is None:
+            raise UsageError(f"Clip {clip_name!r} has no CurrentStart/CurrentEnd")
+        length = ce - cs
+    for tag, val in (("CurrentStart", beat), ("CurrentEnd", beat + length)):
+        node = c.child(tag)
+        if node is not None:
+            doc.set_value(node, _num(val))
+    if "Time" in c.attrs:
+        doc.set_attr(c, "Time", _num(beat))
+    return doc.apply().to_str(), {"clip": clip_name, "to_beat": beat,
+                                  "end_beat": round(beat + length, 6)}
 
 
 def warp_to_grid(
@@ -200,32 +280,29 @@ def warp_to_grid(
 ) -> tuple[str, dict[str, Any]]:
     """Lock each named clip to the grid with two warp markers (0 and end),
     at the given project bpm. `durations` maps clip_name -> seconds."""
+    doc = Doc(xml)
     warped = []
-    out = xml
     for name in clip_names:
-        s, e = _clip_block(out, name)
-        block = out[s:e]
-        dur_s = durations[name]
-        end_beat = dur_s * bpm / 60.0
-        markers = (
-            "<WarpMarkers>\n"
-            '<WarpMarker Id="0" SecTime="0" BeatTime="0"/>\n'
-            f'<WarpMarker Id="1" SecTime="{dur_s:g}" BeatTime="{end_beat:g}"/>\n'
-            "</WarpMarkers>"
-        )
-        block, n_replaced = re.subn(
-            r"<WarpMarkers>.*?</WarpMarkers>", markers, block, flags=re.DOTALL
-        )
-        if n_replaced == 0:
+        c = find_clip(doc, name)
+        wm = c.child("WarpMarkers")
+        if wm is None:
             raise UsageError(
                 f"Clip {name!r} has no <WarpMarkers> block to replace; cannot grid-lock it",
                 hint="only previously-warped audio clips can be grid-locked",
             )
-        if "<IsWarped" in block:
-            block = re.sub(r'<IsWarped Value="(true|false)"/>', '<IsWarped Value="true"/>', block)
-        out = out[:s] + block + out[e:]
+        dur_s = durations[name]
+        end_beat = dur_s * bpm / 60.0
+        doc.replace(wm, (
+            "<WarpMarkers>\n"
+            '<WarpMarker Id="0" SecTime="0" BeatTime="0" />\n'
+            f'<WarpMarker Id="1" SecTime="{dur_s:g}" BeatTime="{end_beat:g}" />\n'
+            "</WarpMarkers>"
+        ))
+        iw = c.child("IsWarped")
+        if iw is not None:
+            doc.set_value(iw, "true")
         warped.append(name)
-    return out, {"warped": warped, "bpm": bpm}
+    return doc.apply().to_str(), {"warped": warped, "bpm": bpm}
 
 
 def verify_refs(xml: str, base_dir: str | Path) -> list[str]:
@@ -233,30 +310,15 @@ def verify_refs(xml: str, base_dir: str | Path) -> list[str]:
     resolve under base_dir. Library/built-in refs (types 5/6/7) and external
     absolute refs (type 1) are not project files and are never reported here;
     see validate.ref_report for the full typed report."""
-    from .alsxml import Doc
     from .validate import ref_report
 
     return ref_report(Doc(xml), base_dir)["missing_project"]
 
 
 def _find_track_block(xml: str, src_track_id: str | int) -> tuple[int, int, str]:
-    """Locate `<{Tag}Track Id="src_track_id" ...>...</{Tag}Track>` in `xml`.
-    Returns (start, end, tag) where (start, end) bound the full block and tag
-    is e.g. "Audio" or "Midi". Tolerates extra attributes after Id
-    (`SelectedToolPanel`, `SelectedTransformationName`, ...) which the original
-    regex did not. Assumes tracks do not nest (Ableton's invariant)."""
-    open_re = re.compile(rf'<(\w+)Track\s+Id="{src_track_id}"[^>]*>')
-    m = open_re.search(xml)
-    if not m:
-        raise UsageError(
-            f"Track Id {src_track_id} not found",
-            hint="run `ableton als inspect FILE.als --json` to list track ids",
-        )
-    tag = m.group(1)
-    end = xml.find(f"</{tag}Track>", m.end())
-    if end < 0:
-        raise RuntimeError(f"Closing </{tag}Track> not found for Id={src_track_id}")
-    return m.start(), end + len(f"</{tag}Track>"), tag
+    """Back-compat: (start, end, tag-without-'Track') of the track with this Id."""
+    t = Doc(xml).track_by_id(src_track_id)
+    return t.start, t.end, t.tag[: -len("Track")]
 
 
 def clone_track(
@@ -266,72 +328,36 @@ def clone_track(
     new_id: int,
     id_offset: int | None = None,
 ) -> str:
-    """PRIMITIVE (not a command): duplicate a track block, give every internal
+    """PRIMITIVE (not a command): duplicate a track, give every internal
     `Id="N"` a unique value via `id_offset` (default: auto-allocate above the
     document's current max Id), set the top-level track Id and EffectiveName,
-    insert the clone after the source, and bump `<NextPointeeId>` to cover the
-    new IDs (Ableton refuses to load a .als if any Id is >= NextPointeeId).
+    insert the clone after the source, and bump `<NextPointeeId>` (Ableton
+    refuses to load a .als if any Id is >= NextPointeeId).
 
-    `id_offset` is added to every `Id="N"` inside the cloned block before the
-    top-level Id is then overwritten with `new_id`. Two calling patterns are
-    collision-free: (1) chain calls, omitting `id_offset` each time so it is
-    re-derived from the growing document's current max Id, or (2) pass
-    distinct explicit `id_offset` values per call. Reusing the same explicit
-    `id_offset` across calls (or any other choice that lands a shifted Id or
-    `new_id` on an Id already present) is NOT silently safe: this function
-    checks the clone's resulting Ids against `xml`'s existing Ids before
-    inserting and raises ValueError, naming the offset and the colliding
-    ids, on overlap."""
-    s, e, _tag = _find_track_block(xml, src_track_id)
-    block = xml[s:e]
-
-    all_ids = [int(x) for x in re.findall(r'Id="(\d+)"', xml)]
-    doc_max = max(all_ids) if all_ids else 0
+    Reusing an explicit `id_offset` that lands a shifted Id or `new_id` on an
+    Id already present raises ValueError naming the offset and the colliding
+    ids; omit `id_offset` to auto-allocate."""
+    doc = Doc(xml)
+    src = doc.track_by_id(src_track_id)
     if id_offset is None:
-        id_offset = ((doc_max // 10000) + 1) * 10000
+        id_offset = doc.id_base()
+    clone = Doc(offset_ids(src.text(doc), id_offset))
+    croot = clone.root
+    clone.set_attr(croot, "Id", new_id)
+    eff = croot.path("Name/EffectiveName")
+    if eff is not None:
+        clone.set_value(eff, new_name)
+    clone_bytes = clone.apply().data
 
-    clone = re.sub(
-        r'Id="(\d+)"',
-        lambda g: f'Id="{int(g.group(1)) + id_offset}"',
-        block,
-    )
-    clone = re.sub(
-        r'(<\w+Track Id=")\d+(")',
-        rf"\g<1>{new_id}\g<2>",
-        clone,
-        count=1,
-    )
-    clone = re.sub(
-        r'(<EffectiveName Value=")[^"]*(")',
-        rf"\g<1>{new_name}\g<2>",
-        clone,
-        count=1,
-    )
-
-    clone_ids = {int(x) for x in re.findall(r'Id="(\d+)"', clone)}
-    colliding = clone_ids & set(all_ids)
+    existing = {int(i) for i in re.findall(rb'(?<=\s)Id="(\d+)"', doc.data)}
+    clone_ids = {int(i) for i in re.findall(rb'(?<=\s)Id="(\d+)"', clone_bytes)}
+    colliding = clone_ids & existing
     if colliding:
         raise ValueError(
             f"clone_track: id_offset={id_offset} (new_id={new_id}) collides "
-            f"with existing Id(s) {sorted(colliding)} already present in the "
+            f"with existing Id(s) {sorted(colliding)[:10]} already present in the "
             f"document. Pass a distinct id_offset, or omit id_offset to "
             f"auto-allocate above the current document max."
         )
-
-    new_xml = xml[:e] + "\n" + clone + xml[e:]
-
-    # Bump NextPointeeId past every Id we now have in the document. Required
-    # for Ableton to accept the file — without this, load fails with:
-    # "NextPointeeId is too low: <stored> must be bigger than <max-id>".
-    max_id = max(int(x) for x in re.findall(r'Id="(\d+)"', new_xml))
-    new_xml, n = re.subn(
-        r'(<NextPointeeId Value=")\d+(")',
-        rf"\g<1>{max_id + 1}\g<2>",
-        new_xml,
-        count=1,
-    )
-    if n == 0:
-        # No NextPointeeId in this document (older format or minimal fixture).
-        # Caller should add one if writing a Live 11+ file.
-        pass
-    return new_xml
+    doc.insert_after(src, b"\n" + clone_bytes)
+    return set_next_pointee(doc.apply()).to_str()

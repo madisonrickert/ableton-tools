@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from .errors import UsageError
@@ -93,6 +94,11 @@ SPEC: list[dict[str, Any]] = [
                 "args": [_arg("als", required=True), _JSON],
             },
             {
+                "name": "validate",
+                "desc": "Structural checks + typed file-ref report (read-only).",
+                "args": [_arg("als", required=True), _JSON],
+            },
+            {
                 "name": "rename",
                 "desc": "Patch file references per manifest.",
                 "args": [
@@ -133,8 +139,8 @@ SPEC: list[dict[str, Any]] = [
                     _arg("als", required=True),
                     _arg("--clip", required=True),
                     _arg("--to-beat", required=True, type=float),
-                    _arg("--dur-s", required=True, type=float),
-                    _arg("--bpm", required=True, type=float),
+                    _arg("--dur-s", type=float, help="new length in seconds (default: keep)"),
+                    _arg("--bpm", type=float, help="tempo for --dur-s"),
                     _COMMIT,
                     _FORCE,
                     _JSON,
@@ -167,6 +173,11 @@ SPEC: list[dict[str, Any]] = [
                         "--colors",
                         default=None,
                         help="JSON {label: color_int} overriding the built-in map",
+                    ),
+                    _arg(
+                        "--keep-session",
+                        action="store_true",
+                        help="keep each clone's Session copy of the master clip",
                     ),
                     _COMMIT,
                     _FORCE,
@@ -337,6 +348,25 @@ def _cmd_als(args: argparse.Namespace) -> int:
             ),
         )
         return 0
+    if args.als_cmd == "validate":
+        from .alsxml import Doc
+        from .validate import ref_report, validate
+
+        doc = Doc.read(args.als)
+        report = validate(doc)
+        report["refs"] = ref_report(doc, Path(args.als).resolve().parent)
+        report["file"] = args.als
+        _emit(
+            report,
+            args.json,
+            lambda o: print(
+                ("OK" if o["ok"] else "INVALID")
+                + "".join(f"\n  error: {e}" for e in o["errors"])
+                + "".join(f"\n  warning: {w}" for w in o["warnings"])
+                + "".join(f"\n  missing project file: {m}" for m in o["refs"]["missing_project"])
+            ),
+        )
+        return 0 if report["ok"] else 1
     from . import commit
 
     args._snap = commit.snapshot(args.als)  # before reading: guards concurrent saves
@@ -356,16 +386,16 @@ def _cmd_als(args: argparse.Namespace) -> int:
         new_xml, diff = als.move_clip_to_beat(xml, args.clip, args.to_beat, args.dur_s, args.bpm)
         out = _als_commit(args, new_xml, diff, "move-clip")
     elif args.als_cmd == "snap":
-        spec = _load_manifest(args.manifest)  # {clip_name: {beat, dur_s, bpm}}
+        spec = _load_manifest(args.manifest)  # {clip_name: {beat[, dur_s, bpm]}}
         new_xml = xml
         diffs = []
         for name, v in spec.items():
-            new_xml, d = als.move_clip_to_beat(new_xml, name, v["beat"], v["dur_s"], v["bpm"])
+            new_xml, d = als.move_clip_to_beat(
+                new_xml, name, v["beat"], v.get("dur_s"), v.get("bpm")
+            )
             diffs.append(d)
         out = _als_commit(args, new_xml, {"snaps": diffs}, "snap")
     elif args.als_cmd == "import-stems":
-        from pathlib import Path
-
         from . import import_stems as ist
 
         stem_paths = sorted(Path(args.stems).glob(args.pattern))
@@ -374,16 +404,10 @@ def _cmd_als(args: argparse.Namespace) -> int:
                 f"No files matching {args.pattern!r} in {args.stems}",
                 hint="check --stems and --pattern",
             )
-        master_id = args.master_track
-        if not master_id.isdigit():  # resolve EffectiveName -> Id
-            tracks = als.inspect_xml(xml)["tracks"]
-            hits = [t["id"] for t in tracks if t["name"] == master_id]
-            if len(hits) != 1:
-                raise UsageError(
-                    f"Track name {master_id!r} matched {len(hits)} tracks",
-                    hint="pass the numeric track Id from `ableton als inspect`",
-                )
-            master_id = hits[0]
+        from .alsxml import Doc
+
+        # Id, exact name, or the name without Live's "<index>-" prefix
+        master_id = Doc(xml).find_track(args.master_track).attrs["Id"]
         project_dir = Path(args.als).resolve().parent
         master_audio = ist.master_audio_path(xml, master_id, project_dir)
         if not master_audio.exists():
@@ -400,11 +424,13 @@ def _cmd_als(args: argparse.Namespace) -> int:
                 "only valid for identical-length, same-rate audio",
             )
         colors = _load_manifest(args.colors) if args.colors else None
-        new_xml, diff = ist.import_stems(xml, master_id, stem_paths, project_dir, colors=colors)
+        new_xml, diff = ist.import_stems(
+            xml, master_id, stem_paths, project_dir, colors=colors, keep_session=args.keep_session
+        )
         out = _als_commit(args, new_xml, diff, "import-stems")
     else:
         raise SystemExit(
-            "als requires a subcommand: inspect | rename | move | "
+            "als requires a subcommand: inspect | validate | rename | move | "
             "warp-to-grid | move-clip | snap | import-stems"
         )
     _emit(out, args.json, lambda o: print(json.dumps(o, indent=2)))
