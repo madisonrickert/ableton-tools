@@ -1,0 +1,246 @@
+"""Transplant a track's device chain from one Live set into another (experimental).
+
+Grounded in a survey of 153 real Live 11/12 sets / 2,124 chains:
+
+* The track-level chain is always <track>/DeviceChain/DeviceChain/Devices; racks
+  nest their own chains deeper (37% of chains), so it is located structurally.
+* No live pointers exist inside a chain (only <Pointee Value="0">), so offsetting
+  every Id="N" (rack branches included) above the target's max Id is safe.
+  ParameterId/UniqueId/LomId are device-internal and never touched.
+* Routing targets reference tracks by Id: "AudioIn/Track.<Id>/...". Most
+  (195/298) are SELF refs (rack-internal DeviceIn/DeviceOut routing) and are
+  remapped to the destination track (device index shifted when appending);
+  cross-track refs are reset to None unless --map-track says where they go.
+* Automation lives outside the chain (track envelopes pointing in): dropped by
+  default (reported), copied with with_automation (PointeeIds remapped).
+* File refs by RelativePathType: 5/6/7 resolve from Live's libraries; 3 (source
+  project) is copied into the target's Samples/Imported/ and repointed; 1 is
+  warned when missing.
+
+Plugin state is copied byte-for-byte.
+"""
+
+from __future__ import annotations
+
+import platform
+import re
+from pathlib import Path
+from typing import Any
+
+from .alsxml import Doc, Node, offset_block, offset_ids, set_next_pointee
+from .errors import UsageError
+
+_ROUTE = re.compile(r"^(AudioIn|AudioOut|MidiIn|MidiOut)/Track\.(\d+)/(.*)$")
+_NONE_DISPLAY = {"AudioIn": "No Output", "AudioOut": "No Output", "MidiIn": "No Output",
+                 "MidiOut": "None"}
+_WRAP_OPEN, _WRAP_CLOSE = b"<Devices>", b"</Devices>"
+
+
+def _track(doc: Doc, name: str | None, main: bool, role: str) -> Node:
+    if main:
+        return doc.main_track()
+    if not name:
+        raise UsageError(f"pass --{role}-track NAME or --{role}-main")
+    return doc.find_track(name)
+
+
+def _plugin_report(chain: Doc) -> list[dict[str, Any]]:
+    out = []
+    for dev in chain.nodes("PluginDevice") + chain.nodes("AuPluginDevice"):
+        desc = dev.child("PluginDesc")
+        info = desc.children()[0] if desc is not None and desc.children() else None
+        if info is None:
+            continue
+        fmt = {"Vst3PluginInfo": "VST3", "VstPluginInfo": "VST2",
+               "AuPluginInfo": "AU"}.get(info.tag, info.tag)
+        name_node = info.child("Name") or info.child("PlugName")
+        name = name_node.value() if name_node is not None else ""
+        out.append({"name": name, "format": fmt, "found": _plugin_found(fmt, name, info)})
+    return out
+
+
+def _plugin_found(fmt: str, name: str | None, info: Node) -> bool | None:
+    if platform.system() != "Darwin" or not name:
+        return None
+    path = info.child("Path")
+    if fmt == "VST2" and path is not None and path.value():
+        return Path(path.value() or "").exists()
+    sub, ext = {"VST3": ("VST3", ".vst3"), "AU": ("Components", ".component"),
+                "VST2": ("VST", ".vst")}.get(fmt, ("", ""))
+    if not sub:
+        return None
+    roots = [Path("/Library/Audio/Plug-Ins") / sub, Path.home() / "Library/Audio/Plug-Ins" / sub]
+    return any((r / f"{name}{ext}").exists() for r in roots)
+
+
+def transplant(
+    target_xml: str,
+    source_xml: str | Doc,
+    *,
+    src_track: str | None = None,
+    src_main: bool = False,
+    to_track: str | None = None,
+    to_main: bool = False,
+    mode: str = "replace",
+    with_automation: bool = False,
+    map_track: dict[str, str] | None = None,
+    target_dir: str | Path | None = None,
+    source_dir: str | Path | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Copy the source track's device chain onto the target track. Returns
+    (new_target_xml, diff). `diff["files_copied"]` is a copy plan; the caller
+    copies the files (only when committing)."""
+    if mode not in ("replace", "append"):
+        raise UsageError(f"--mode must be 'replace' or 'append', not {mode!r}")
+    sdoc = source_xml if isinstance(source_xml, Doc) else Doc(source_xml)
+    tdoc = Doc(target_xml)
+    src = _track(sdoc, src_track, src_main, "src")
+    dst = _track(tdoc, to_track, to_main, "to")
+    sdevs = sdoc.effects_devices(src)
+    kids = sdevs.children()
+    if not kids:
+        raise UsageError(f"source track {sdoc.track_name(src) or src.tag!r} has no devices")
+    raw_chain = sdoc.data[kids[0].start : kids[-1].end]
+    tdevs = tdoc.effects_devices(dst)
+    existing = tdevs.children() if mode == "append" else []
+    shift = len(existing)
+    off = tdoc.id_base()
+
+    # ---- ids ----
+    chain_target_ids = {n.attrs["Id"] for k in kids for n in _descendants(k)
+                        if n.tag.endswith("Target") and "Id" in n.attrs}
+    chain = offset_block(raw_chain, off)
+
+    # ---- routing ----
+    src_id = src.attrs.get("Id")
+    dst_id = dst.attrs.get("Id")
+    mapped_ids: dict[str, str] = {}
+    for s_name, t_name in (map_track or {}).items():
+        mapped_ids[sdoc.find_track(s_name).attrs["Id"]] = tdoc.find_track(t_name).attrs["Id"]
+    wrapped = Doc(_WRAP_OPEN + chain + _WRAP_CLOSE)
+    self_remapped, reset, mapped = [], [], []
+    for tnode in wrapped.nodes("Target"):
+        m = _ROUTE.match(tnode.value() or "")
+        if m is None:
+            continue
+        kind, tid, rest = m.groups()
+        parent = tnode.parent
+        upper = parent.child("UpperDisplayString") if parent is not None else None
+        lower = parent.child("LowerDisplayString") if parent is not None else None
+        if tid == src_id and dst_id is not None:
+            if shift:
+                rest = re.sub(r"^(Device(?:In|Out)\.)(\d+)",
+                              lambda g: f"{g.group(1)}{int(g.group(2)) + shift}", rest)
+            new = f"{kind}/Track.{dst_id}/{rest}"
+            wrapped.set_value(tnode, new)
+            if upper is not None:
+                wrapped.set_value(upper, tdoc.track_name(dst))
+            self_remapped.append({"from": tnode.value(), "to": new})
+        elif tid in mapped_ids:
+            new = f"{kind}/Track.{mapped_ids[tid]}/{rest}"
+            wrapped.set_value(tnode, new)
+            if upper is not None:
+                wrapped.set_value(upper, tdoc.track_name(tdoc.track_by_id(mapped_ids[tid])))
+            mapped.append({"from": tnode.value(), "to": new})
+        else:
+            wrapped.set_value(tnode, f"{kind}/None")
+            if upper is not None:
+                wrapped.set_value(upper, _NONE_DISPLAY[kind])
+            if lower is not None:
+                wrapped.set_value(lower, "")
+            reset.append({"from": tnode.value(), "note": "re-assign in Live"})
+    wrapped = wrapped.apply()
+
+    # ---- file refs ----
+    warnings: list[str] = []
+    files: list[dict[str, str]] = []
+    for ref in wrapped.nodes("FileRef"):
+        kind_n = ref.child("RelativePathType")
+        k = kind_n.value() if kind_n is not None else None
+        rel_n, path_n = ref.child("RelativePath"), ref.child("Path")
+        if k == "3" and rel_n is not None and rel_n.value():
+            rel = rel_n.value() or ""
+            dest_rel = f"Samples/Imported/{Path(rel).name}"
+            wrapped.set_value(rel_n, dest_rel)
+            if path_n is not None:
+                wrapped.set_value(path_n, str(Path(target_dir) / dest_rel) if target_dir
+                                  else dest_rel)
+            plan = {"from": str(Path(source_dir) / rel) if source_dir else rel,
+                    "to": str(Path(target_dir) / dest_rel) if target_dir else dest_rel}
+            if plan not in files:
+                files.append(plan)
+        elif k == "1" and path_n is not None and path_n.value() \
+                and not Path(path_n.value() or "").exists():
+            warnings.append(f"external file not found: {path_n.value()}")
+    wrapped = wrapped.apply()
+    plugins = _plugin_report(wrapped)
+    for p in plugins:
+        if p["found"] is False:
+            warnings.append(f"{p['format']} plugin {p['name']!r} not found on this machine "
+                            "(Live will show a placeholder)")
+    chain = wrapped.data[len(_WRAP_OPEN) : -len(_WRAP_CLOSE)]
+
+    target_ids = {t.attrs.get("Id") for t in tdoc.tracks()}
+    for tid in re.findall(rb"Track\.(\d+)/", chain):
+        if tid.decode() not in target_ids:
+            raise UsageError(f"internal: routing still points at missing track {tid.decode()}")
+
+    # ---- place ----
+    if existing:
+        tdoc.insert_after(existing[-1], b"\n" + chain)
+    else:
+        tdoc.replace(tdevs, b"<Devices>\n" + chain + b"\n</Devices>")
+
+    # ---- automation ----
+    envs = src.path("AutomationEnvelopes/Envelopes")
+    pointing = []
+    for env in envs.children() if envs is not None else []:
+        p = env.path("EnvelopeTarget/PointeeId")
+        if p is not None and p.value() in chain_target_ids:
+            pointing.append(env)
+    copied = 0
+    if with_automation and pointing:
+        tenv = dst.path("AutomationEnvelopes/Envelopes")
+        if tenv is None:
+            warnings.append("target has no AutomationEnvelopes; automation not copied")
+        else:
+            n0 = len(tenv.children())
+            pieces = []
+            for i, env in enumerate(pointing):
+                e = Doc(offset_ids(env.text(sdoc), off))
+                e.set_attr(e.root, "Id", n0 + i)
+                pt = e.root.path("EnvelopeTarget/PointeeId")
+                if pt is not None:
+                    e.set_value(pt, int(pt.value() or 0) + off)
+                pieces.append(e.apply().data)
+            if tenv.children():
+                tdoc.insert_after(tenv.children()[-1], b"\n" + b"\n".join(pieces))
+            else:
+                tdoc.replace(tenv, b"<Envelopes>\n" + b"\n".join(pieces) + b"\n</Envelopes>")
+            copied = len(pieces)
+
+    out = set_next_pointee(tdoc.apply())
+    return out.to_str(), {
+        "source_track": sdoc.track_name(src) or src.tag,
+        "target_track": tdoc.track_name(dst) or dst.tag,
+        "mode": mode,
+        "devices": [k.tag for k in kids],
+        "plugins": plugins,
+        "routing_self_remapped": self_remapped,
+        "routing_mapped": mapped,
+        "routing_reset": reset,
+        "automation_dropped": len(pointing) - copied,
+        "automation_copied": copied,
+        "files_copied": files,
+        "warnings": warnings,
+    }
+
+
+def _descendants(n: Node) -> list[Node]:
+    out = [n]
+    stack = list(n.children())
+    while stack:
+        c = stack.pop()
+        out.append(c)
+        stack.extend(c.children())
+    return out

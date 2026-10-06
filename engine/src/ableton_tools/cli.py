@@ -237,6 +237,21 @@ SPEC: list[dict[str, Any]] = [
                               help="also copy the master's warp markers"),
                          _COMMIT, _FORCE, _JSON],
             },
+            {
+                "name": "transplant-devices",
+                "desc": "EXPERIMENTAL: copy a track's device chain from another set "
+                "(plugin state verbatim; ids, routing and file refs fixed up).",
+                "args": [_arg("als", required=True, help="target set"),
+                         _arg("--from", required=True, help="source set"),
+                         _arg("--src-track"), _arg("--src-main", action="store_true"),
+                         _arg("--to-track"), _arg("--to-main", action="store_true"),
+                         _arg("--mode", default="replace", choices=["replace", "append"]),
+                         _arg("--with-automation", action="store_true",
+                              help="also copy the source track's automation of these devices"),
+                         _arg("--map-track", nargs="*", default=None,
+                              help="SRC=DST: point cross-track routing at a target track"),
+                         _COMMIT, _FORCE, _JSON],
+            },
         ],
     },
 ]
@@ -516,6 +531,32 @@ def _cmd_als(args: argparse.Namespace) -> int:
                 markers=args.markers,
             )
         out = _als_commit(args, new_xml, diff, args.als_cmd)
+    elif args.als_cmd == "transplant-devices":
+        import shutil
+
+        from . import devices
+
+        mapping = {}
+        for pair in args.map_track or []:
+            if "=" not in pair:
+                raise UsageError(f"--map-track expects SRC=DST, got {pair!r}")
+            k, v = pair.split("=", 1)
+            mapping[k] = v
+        src_path = Path(getattr(args, "from"))
+        new_xml, diff = devices.transplant(
+            xml, als.read_als(src_path), src_track=args.src_track, src_main=args.src_main,
+            to_track=args.to_track, to_main=args.to_main, mode=args.mode,
+            with_automation=args.with_automation, map_track=mapping,
+            target_dir=Path(args.als).resolve().parent, source_dir=src_path.resolve().parent,
+        )
+        if args.commit:  # files must exist before the post-write project-ref check
+            for f in diff["files_copied"]:
+                if not Path(f["from"]).exists():
+                    raise UsageError(f"source file for a device ref is missing: {f['from']}")
+                Path(f["to"]).parent.mkdir(parents=True, exist_ok=True)
+                if not Path(f["to"]).exists():
+                    shutil.copy2(f["from"], f["to"])
+        out = _als_commit(args, new_xml, diff, "transplant-devices")
     else:
         raise SystemExit("als requires a subcommand; run `ableton manifest` to list them")
     _emit(out, args.json, lambda o: print(json.dumps(o, indent=2)))

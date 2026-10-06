@@ -65,3 +65,17 @@ def test_cli_import_stems_session_unwarped_flags(live12_project, capsys):
                    "master", "--stems", str(d), "--to", "session", "--unwarped")
     assert rc == 0 and out["diff"]["stems"][0]["placement"] == "session"
     assert out["validation"]["ok"]
+
+
+def test_cli_transplant_devices_commit_copies_files(live12_project, chain_src_als, capsys):
+    p = str(live12_project)
+    rc, dry = _run(capsys, "als", "transplant-devices", p, "--from", str(chain_src_als),
+                   "--src-track", "master", "--to-main", "--map-track", "source=A-Reverb")
+    assert rc == 0 and dry["dry_run"] and dry["validation"]["ok"]
+    assert not (live12_project.parent / "Samples/Imported/ir.wav").exists()
+    rc, out = _run(capsys, "als", "transplant-devices", p, "--from", str(chain_src_als),
+                   "--src-track", "master", "--to-main", "--map-track", "source=A-Reverb",
+                   "--commit")
+    assert rc == 0 and out["committed"], out
+    assert (live12_project.parent / "Samples/Imported/ir.wav").exists()
+    assert out["diff"]["routing_mapped"]
