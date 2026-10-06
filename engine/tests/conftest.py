@@ -1,4 +1,5 @@
 import gzip
+from pathlib import Path
 
 import mido
 import numpy as np
@@ -166,3 +167,38 @@ def stem_project(tmp_path):
     sf.write(str(stems / "0 Lead Vocals.wav"), x, sr)
     sf.write(str(stems / "1 Drums.wav"), x, sr)
     return tmp_path, [stems / "0 Lead Vocals.wav", stems / "1 Drums.wav"]
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _write_project(tmp_path, dirname: str, fixture_name: str, als_name: str,
+                   wavs: dict[str, float]):
+    """Gzip a fixture XML into tmp_path/<dirname>/<als_name> and write wav stubs
+    (path relative to the project -> seconds of quiet noise at 48 kHz)."""
+    proj = tmp_path / dirname
+    proj.mkdir(exist_ok=True)
+    als = proj / als_name
+    with gzip.open(str(als), "wb") as fh:
+        fh.write((FIXTURES / fixture_name).read_bytes())
+    rng = np.random.default_rng(0)
+    for rel, secs in wavs.items():
+        p = proj / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(str(p), (0.01 * rng.standard_normal(int(secs * 48000))).astype(np.float32), 48000)
+    return als
+
+
+@pytest.fixture
+def live12_project(tmp_path):
+    """A sanitized real Live 12.4 set (see fixtures/README.md) in a project dir."""
+    return _write_project(tmp_path, "proj", "live12_set.xml", "Set.als", {"Samples/master.wav": 2.0})
+
+
+@pytest.fixture
+def chain_src_als(tmp_path):
+    """The device-transplant source set (rack, sidechains, VST3, type-3 ref, automation)."""
+    return _write_project(
+        tmp_path, "src", "chain_src.xml", "Source.als",
+        {"Samples/master.wav": 2.0, "Samples/ir.wav": 0.5},
+    )

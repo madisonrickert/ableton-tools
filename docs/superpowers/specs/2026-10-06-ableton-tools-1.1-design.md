@@ -307,9 +307,12 @@ A read-only corpus survey covered **153 Live 11/12 sets** and **2,124 device cha
 1. **Copy** the source chain bytes verbatim, so plugin state is untouched.
 2. **Re-id.** Offset every `Id="N"` in the chain, rack branches included, above the target's
    max id, then bump `NextPointeeId`.
-3. **Routing.**
-   - Recursively reset every `…/Track.N/…` routing target to its `…/None` form and update the
-     display strings.
+3. **Routing.** (Corpus: 195 of 298 in-chain refs are *self* refs, where N is the source
+   track's own Id: rack-internal `DeviceIn`/`DeviceOut` routing. The other 103 point at other
+   tracks.)
+   - Self refs: rewrite N to the destination track's Id. In `append` mode, shift the first
+     `DeviceIn.X` / `DeviceOut.X` index by the number of devices already in the target chain.
+   - Cross-track refs: recursively reset to the `…/None` form and update the display strings.
    - List each reset in the diff as "re-assign in Live".
    - `--map-track SRC=DST` remaps instead: SRC names a source-set track and DST a target-set
      track (both resolved via `find_track`), and `N` is substituted with DST's track `Id`.
