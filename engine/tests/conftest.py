@@ -193,7 +193,9 @@ def _write_project(tmp_path, dirname: str, fixture_name: str, als_name: str,
 @pytest.fixture
 def live12_project(tmp_path):
     """A sanitized real Live 12.4 set (see fixtures/README.md) in a project dir."""
-    return _write_project(tmp_path, "proj", "live12_set.xml", "Set.als", {"Samples/master.wav": 2.0})
+    return _write_project(
+        tmp_path, "proj", "live12_set.xml", "Set.als", {"Samples/master.wav": 2.0}
+    )
 
 
 @pytest.fixture
