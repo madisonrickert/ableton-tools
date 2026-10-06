@@ -205,3 +205,11 @@ def chain_src_als(tmp_path):
         tmp_path, "src", "chain_src.xml", "Source.als",
         {"Samples/master.wav": 2.0, "Samples/ir.wav": 0.5},
     )
+
+
+@pytest.fixture(autouse=True)
+def _live_not_running(monkeypatch):
+    """Tests must not depend on whether Ableton Live is open on this machine."""
+    from ableton_tools import commit
+
+    monkeypatch.setattr(commit, "live_running", lambda: False)

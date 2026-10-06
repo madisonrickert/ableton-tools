@@ -32,6 +32,7 @@ def _arg(
 
 
 _COMMIT = _arg("--commit", action="store_true", help="write (default: dry-run)")
+_FORCE = _arg("--force", action="store_true", help="commit even if Ableton Live is running")
 _JSON = _arg("--json", action="store_true", help="JSON output")
 
 # Single source of truth: drives both build_parser() and `manifest --json`, so
@@ -98,6 +99,7 @@ SPEC: list[dict[str, Any]] = [
                     _arg("als", required=True),
                     _arg("--manifest", required=True),
                     _COMMIT,
+                    _FORCE,
                     _JSON,
                 ],
             },
@@ -108,6 +110,7 @@ SPEC: list[dict[str, Any]] = [
                     _arg("als", required=True),
                     _arg("--manifest", required=True),
                     _COMMIT,
+                    _FORCE,
                     _JSON,
                 ],
             },
@@ -119,6 +122,7 @@ SPEC: list[dict[str, Any]] = [
                     _arg("--tempo", required=True, type=float),
                     _arg("--clips", required=True),
                     _COMMIT,
+                    _FORCE,
                     _JSON,
                 ],
             },
@@ -132,6 +136,7 @@ SPEC: list[dict[str, Any]] = [
                     _arg("--dur-s", required=True, type=float),
                     _arg("--bpm", required=True, type=float),
                     _COMMIT,
+                    _FORCE,
                     _JSON,
                 ],
             },
@@ -142,6 +147,7 @@ SPEC: list[dict[str, Any]] = [
                     _arg("als", required=True),
                     _arg("--manifest", required=True),
                     _COMMIT,
+                    _FORCE,
                     _JSON,
                 ],
             },
@@ -163,6 +169,7 @@ SPEC: list[dict[str, Any]] = [
                         help="JSON {label: color_int} overriding the built-in map",
                     ),
                     _COMMIT,
+                    _FORCE,
                     _JSON,
                 ],
             },
@@ -310,29 +317,12 @@ def _load_manifest(path: str) -> dict[str, Any]:
 def _als_commit(
     args: argparse.Namespace, new_xml: str, diff: dict[str, Any], op: str
 ) -> dict[str, Any]:
-    """Shared commit/dry-run logic for mutating als subcommands."""
-    from . import als
+    """Shared commit/dry-run logic for mutating als subcommands (see commit.py)."""
+    from . import commit
 
-    if not args.commit:
-        return {
-            "dry_run": True,
-            "op": op,
-            "diff": diff,
-            "note": "re-run with --commit to write (a timestamped backup is made first)",
-        }
-    backup_path = als.backup(args.als, op)
-    als.write_als(args.als, new_xml)
-    base = str(__import__("pathlib").Path(args.als).parent)
-    missing = als.verify_refs(new_xml, base)
-    if missing:
-        als.write_als(args.als, als.read_als(backup_path))  # restore
-        return {
-            "committed": False,
-            "restored_from": backup_path,
-            "error": "broken refs after patch",
-            "missing_refs": missing,
-        }
-    return {"committed": True, "backup": backup_path, "op": op, "diff": diff}
+    return commit.run(
+        args.als, args._snap, new_xml, diff, op, commit=args.commit, force=args.force
+    )
 
 
 def _cmd_als(args: argparse.Namespace) -> int:
@@ -347,6 +337,9 @@ def _cmd_als(args: argparse.Namespace) -> int:
             ),
         )
         return 0
+    from . import commit
+
+    args._snap = commit.snapshot(args.als)  # before reading: guards concurrent saves
     xml = als.read_als(args.als)
     if args.als_cmd == "rename":
         new_xml, diff = als.rename_refs(xml, _load_manifest(args.manifest))
@@ -501,7 +494,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return DISPATCH[args.cmd](args)
     except UsageError as e:
-        payload = {"error": str(e), "hint": e.hint}
+        payload: dict[str, Any] = {"error": str(e), "hint": e.hint}
+        if e.kind:
+            payload["kind"] = e.kind
         if getattr(args, "json", False):
             sys.stderr.write(json.dumps(payload) + "\n")
         else:

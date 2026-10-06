@@ -229,13 +229,14 @@ def warp_to_grid(
 
 
 def verify_refs(xml: str, base_dir: str | Path) -> list[str]:
-    """Return RelativePath values that do not resolve under base_dir."""
-    base = Path(base_dir)
-    missing = []
-    for rel in re.findall(r'<RelativePath Value="([^"]+)"', xml):
-        if not (base / rel).exists():
-            missing.append(rel)
-    return missing
+    """Project-relative (RelativePathType 3, or untyped legacy) refs that do not
+    resolve under base_dir. Library/built-in refs (types 5/6/7) and external
+    absolute refs (type 1) are not project files and are never reported here;
+    see validate.ref_report for the full typed report."""
+    from .alsxml import Doc
+    from .validate import ref_report
+
+    return ref_report(Doc(xml), base_dir)["missing_project"]
 
 
 def _find_track_block(xml: str, src_track_id: str | int) -> tuple[int, int, str]:

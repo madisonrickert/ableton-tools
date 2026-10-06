@@ -95,3 +95,9 @@ def test_ref_report_flags_missing_project_sample(live12_project):
     (live12_project.parent / "Samples" / "master.wav").unlink()
     report = ref_report(Doc.read(live12_project), live12_project.parent)
     assert report["missing_project"] == ["Samples/master.wav"]
+
+
+def test_ref_without_relative_path_type_is_treated_as_project(tmp_path):
+    xml = ('<A><SampleRef><FileRef><RelativePath Value="Samples/x.wav" />'
+           '<Path Value="/abs/x.wav" /></FileRef></SampleRef></A>')
+    assert ref_report(Doc(xml), tmp_path)["missing_project"] == ["Samples/x.wav"]

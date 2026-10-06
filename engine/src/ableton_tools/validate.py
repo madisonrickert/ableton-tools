@@ -110,7 +110,7 @@ def ref_report(doc: Doc, base_dir: str | Path) -> dict[str, Any]:
         k = kind.value() if kind is not None else None
         relv = rel.value() if rel is not None else ""
         pathv = path.value() if path is not None else ""
-        if k == "3":
+        if k in ("3", None):  # None: legacy/minimal docs without a type -> project
             if relv and not (base / relv).exists() and relv not in report["missing_project"]:
                 report["missing_project"].append(relv)
         elif k == "1":
