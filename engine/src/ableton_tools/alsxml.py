@@ -304,6 +304,22 @@ def offset_ids(fragment: bytes | str, offset: int) -> bytes:
     return _ID_ATTR.sub(lambda m: b'Id="%d"' % (int(m.group(1)) + offset), data)
 
 
+def offset_block(fragment: bytes | str, offset: int) -> bytes:
+    """offset_ids() for a self-contained block (a track, a device chain), plus
+    every <PointeeId Value="N"> that points at an Id INSIDE the block, so the
+    copy's automation targets the copy. Pointers to Ids outside the block (e.g.
+    the song tempo) are left alone."""
+    data = fragment.encode("utf-8") if isinstance(fragment, str) else fragment
+    inside = {int(m) for m in _ID_ATTR.findall(data)}
+    out = offset_ids(data, offset)
+
+    def remap(m: re.Match[bytes]) -> bytes:
+        v = int(m.group(2))
+        return m.group(1) + str(v + offset if v in inside else v).encode() + m.group(3)
+
+    return re.sub(rb'(<PointeeId Value=")(\d+)(")', remap, out)
+
+
 def set_next_pointee(doc: Doc) -> Doc:
     """NextPointeeId = max Id + 1 (Live refuses sets where any Id >= it)."""
     nodes = doc.nodes("NextPointeeId")

@@ -21,6 +21,8 @@ def _arg(
     help: str = "",
     type: type | None = None,
     action: str | None = None,
+    nargs: str | None = None,
+    choices: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -29,6 +31,8 @@ def _arg(
         "help": help,
         "type": type,
         "action": action,
+        "nargs": nargs,
+        "choices": choices,
     }
 
 
@@ -179,10 +183,59 @@ SPEC: list[dict[str, Any]] = [
                         action="store_true",
                         help="keep each clone's Session copy of the master clip",
                     ),
+                    _arg(
+                        "--tolerance-ms",
+                        type=float,
+                        help="relaxed check: allow length differences up to N ms and any "
+                        "sample rate; measure each stem's start lag against the master",
+                    ),
+                    _arg("--to", default="arrangement", choices=["arrangement", "session"],
+                         help="place stems in the Arrangement (default) or Session slot 1"),
+                    _arg("--unwarped", action="store_true",
+                         help="import unwarped (native speed; for un-synced takes)"),
+                    _arg("--mute-below", type=float, help="import stems quieter than N dBFS muted"),
+                    _arg("--skip-below", type=float, help="skip stems quieter than N dBFS"),
                     _COMMIT,
                     _FORCE,
                     _JSON,
                 ],
+            },
+            {
+                "name": "set-tempo",
+                "desc": "Set the project tempo (Main/Master track).",
+                "args": [_arg("als", required=True), _arg("bpm", required=True, type=float),
+                         _COMMIT, _FORCE, _JSON],
+            },
+            {
+                "name": "mute",
+                "desc": "Mute (or --unmute) tracks.",
+                "args": [_arg("als", required=True),
+                         _arg("--tracks", required=True, nargs="+"),
+                         _arg("--unmute", action="store_true"), _COMMIT, _FORCE, _JSON],
+            },
+            {
+                "name": "add-track",
+                "desc": "Add a bare audio track (no clips/devices/automation).",
+                "args": [_arg("als", required=True), _arg("--name", required=True),
+                         _arg("--color", type=int), _arg("--after", help="insert after track"),
+                         _COMMIT, _FORCE, _JSON],
+            },
+            {
+                "name": "group",
+                "desc": "Fold contiguous tracks into a group (members routed to the group bus).",
+                "args": [_arg("als", required=True), _arg("--name", required=True),
+                         _arg("--tracks", required=True, nargs="+"), _arg("--color", type=int),
+                         _COMMIT, _FORCE, _JSON],
+            },
+            {
+                "name": "sync-to-master",
+                "desc": "Copy the master clip's arrangement position (and optionally warp "
+                "markers) onto other tracks' warped clips.",
+                "args": [_arg("als", required=True), _arg("--master", required=True),
+                         _arg("--tracks", nargs="+"), _arg("--all-warped", action="store_true"),
+                         _arg("--markers", action="store_true",
+                              help="also copy the master's warp markers"),
+                         _COMMIT, _FORCE, _JSON],
             },
         ],
     },
@@ -415,24 +468,56 @@ def _cmd_als(args: argparse.Namespace) -> int:
                 f"Master audio not found: {master_audio}",
                 hint="the .als RelativePath must resolve against the project dir",
             )
-        problems = ist.check_stem_invariants(master_audio, stem_paths)
+        timeline = None
+        if args.tolerance_ms is not None:
+            problems, timeline = ist.check_timeline(master_audio, stem_paths, args.tolerance_ms)
+            if problems:
+                raise UsageError(
+                    "Stems are not on the master's timeline: "
+                    + ", ".join(f"{Path(p['file']).name} (lag {p['lag_ms']} ms, "
+                                f"Δlen {p['delta_ms']} ms)" for p in problems),
+                    hint="check the stems' start offsets, or raise --tolerance-ms for length",
+                    details=timeline,
+                )
+            problems = []
+        else:
+            problems = ist.check_stem_invariants(master_audio, stem_paths)
         if problems:
             raise UsageError(
                 "Stems do not match the master's frames/samplerate: "
                 + ", ".join(p["file"] for p in problems),
                 hint="stem import clones the master's warp markers, which is "
-                "only valid for identical-length, same-rate audio",
+                "only valid for identical-length, same-rate audio; for same-timeline "
+                "files with padding or a different sample rate, pass --tolerance-ms",
             )
         colors = _load_manifest(args.colors) if args.colors else None
         new_xml, diff = ist.import_stems(
-            xml, master_id, stem_paths, project_dir, colors=colors, keep_session=args.keep_session
+            xml, master_id, stem_paths, project_dir, colors=colors,
+            keep_session=args.keep_session, to=args.to, unwarped=args.unwarped,
+            mute_below=args.mute_below, skip_below=args.skip_below,
         )
+        if timeline is not None:
+            diff["timeline"] = timeline
         out = _als_commit(args, new_xml, diff, "import-stems")
+    elif args.als_cmd in ("set-tempo", "mute", "add-track", "group", "sync-to-master"):
+        from . import session
+
+        if args.als_cmd == "set-tempo":
+            new_xml, diff = session.set_tempo_cmd(xml, args.bpm)
+        elif args.als_cmd == "mute":
+            new_xml, diff = session.mute(xml, args.tracks, unmute=args.unmute)
+        elif args.als_cmd == "add-track":
+            new_xml, diff = session.add_track(xml, args.name, color=args.color, after=args.after)
+        elif args.als_cmd == "group":
+            new_xml, diff = session.group(xml, args.name, args.tracks, color=args.color)
+        else:
+            new_xml, diff = session.sync_to_master(
+                xml, args.master, tracks=args.tracks, all_warped=args.all_warped,
+                markers=args.markers,
+            )
+        out = _als_commit(args, new_xml, diff, args.als_cmd)
     else:
-        raise SystemExit(
-            "als requires a subcommand: inspect | validate | rename | move | "
-            "warp-to-grid | move-clip | snap | import-stems"
-        )
+        raise SystemExit("als requires a subcommand; run `ableton manifest` to list them")
     _emit(out, args.json, lambda o: print(json.dumps(o, indent=2)))
     return 0
 
@@ -443,6 +528,10 @@ def _add_arg(parser: argparse.ArgumentParser, a: dict[str, Any]) -> None:
     kwargs: dict[str, Any] = {}
     if a.get("help"):
         kwargs["help"] = a["help"]
+    if a.get("choices"):
+        kwargs["choices"] = a["choices"]
+    if a.get("nargs"):
+        kwargs["nargs"] = a["nargs"]
     if a.get("action"):
         kwargs["action"] = a["action"]
     else:

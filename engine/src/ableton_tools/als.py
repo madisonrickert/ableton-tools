@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .alsxml import Doc, Node, offset_ids, set_next_pointee
+from .alsxml import Doc, Node, offset_block, set_next_pointee
 from .errors import UsageError
 
 
@@ -329,7 +329,8 @@ def clone_track(
     id_offset: int | None = None,
 ) -> str:
     """PRIMITIVE (not a command): duplicate a track, give every internal
-    `Id="N"` a unique value via `id_offset` (default: auto-allocate above the
+    `Id="N"` (and every automation PointeeId aimed inside the track) a unique
+    value via `id_offset` (default: auto-allocate above the
     document's current max Id), set the top-level track Id and EffectiveName,
     insert the clone after the source, and bump `<NextPointeeId>` (Ableton
     refuses to load a .als if any Id is >= NextPointeeId).
@@ -341,7 +342,7 @@ def clone_track(
     src = doc.track_by_id(src_track_id)
     if id_offset is None:
         id_offset = doc.id_base()
-    clone = Doc(offset_ids(src.text(doc), id_offset))
+    clone = Doc(offset_block(src.text(doc), id_offset))  # ids + self-targeting automation
     croot = clone.root
     clone.set_attr(croot, "Id", new_id)
     eff = croot.path("Name/EffectiveName")
