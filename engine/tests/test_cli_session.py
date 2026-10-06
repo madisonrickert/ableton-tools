@@ -79,3 +79,12 @@ def test_cli_transplant_devices_commit_copies_files(live12_project, chain_src_al
     assert rc == 0 and out["committed"], out
     assert (live12_project.parent / "Samples/Imported/ir.wav").exists()
     assert out["diff"]["routing_mapped"]
+
+
+def test_cli_unwarped_takes_skip_timeline_check(live12_project, capsys):
+    d = live12_project.parent / "takes"
+    d.mkdir()
+    sf.write(str(d / "0 Take.wav"), np.zeros(4800, np.float32), 48000)  # 0.1 s, any length
+    rc, out = _run(capsys, "als", "import-stems", str(live12_project), "--master-track",
+                   "master", "--stems", str(d), "--to", "session", "--unwarped")
+    assert rc == 0 and out["validation"]["ok"]

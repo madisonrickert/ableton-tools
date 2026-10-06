@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -188,7 +189,9 @@ def test_version_flag(capsys):
     with pytest.raises(SystemExit) as ex:
         cli.main(["--version"])
     assert ex.value.code == 0
-    assert "0.2" in capsys.readouterr().out
+    pyproject = (Path(__file__).parents[1] / "pyproject.toml").read_text()
+    version = re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1)
+    assert capsys.readouterr().out.strip() == f"ableton {version}"
 
 
 def test_help_subcommand(capsys):

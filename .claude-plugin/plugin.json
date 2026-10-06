@@ -1,7 +1,7 @@
 {
   "name": "ableton-tools",
-  "description": "Ableton Live toolkit: stem verification, tempo/drift analysis, MIDI transcription and comparison, and safe .als editing via a uv-managed Python engine.",
-  "version": "1.0.1",
+  "description": "Ableton Live toolkit: stem verification, levels/locate, tempo/drift/warp analysis, MIDI transcription and comparison, and safe lossless .als editing (stem import, groups, session building, device-chain transplant) via a uv-managed Python engine. Live 12 and 11.",
+  "version": "1.1.0",
   "author": {
     "name": "Madison Rickert"
   },

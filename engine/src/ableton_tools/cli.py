@@ -536,7 +536,9 @@ def _cmd_als(args: argparse.Namespace) -> int:
                 hint="the .als RelativePath must resolve against the project dir",
             )
         timeline = None
-        if args.tolerance_ms is not None:
+        if args.unwarped:
+            problems = []  # un-synced takes: no shared warp map, so no timeline to match
+        elif args.tolerance_ms is not None:
             problems, timeline = ist.check_timeline(master_audio, stem_paths, args.tolerance_ms)
             if problems:
                 raise UsageError(
