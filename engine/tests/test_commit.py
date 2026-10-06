@@ -90,3 +90,12 @@ def test_commit_twice_same_second(live12_project):
                         commit=True, force=False)
     assert first["committed"] and second["committed"]
     assert first["backup"] != second["backup"]
+
+
+def test_preexisting_missing_ref_does_not_block_unrelated_commits(live12_project):
+    (live12_project.parent / "Samples" / "master.wav").unlink()  # stale ref already in the set
+    snap = commit.snapshot(live12_project)
+    out = commit.run(live12_project, snap, _retempo(_xml(live12_project)), {}, "t",
+                     commit=True, force=False)
+    assert out["committed"] is True
+    assert any("Samples/master.wav" in w for w in out["warnings"])

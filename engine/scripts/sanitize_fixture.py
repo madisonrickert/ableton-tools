@@ -3,6 +3,7 @@
     uv run --project engine python engine/scripts/sanitize_fixture.py SRC.als \
         engine/tests/fixtures/live12_set.xml
 
+Set FIXTURE_LEAK_TERMS="name1,name2" to fail if any client/project name survives.
 Strips user paths and names, repoints the one sample to `Samples/master.wav`
 (project-relative, RelativePathType 3), and trims each clip's warp map to four
 markers so the fixture stays small. Everything structural that Live 12 writes
@@ -13,6 +14,7 @@ return-track device refs of types 1/5/7, scenes, NextPointeeId) is kept as-is.
 from __future__ import annotations
 
 import gzip
+import os
 import re
 import sys
 from pathlib import Path
@@ -58,7 +60,9 @@ def main() -> None:
     with gzip.open(src, "rb") as fh:
         xml = fh.read().decode("utf-8")
     out = sanitize(xml)
-    leaks = re.findall(r"(?:/Volumes/|nsh)", out)
+    extra = [re.escape(t.strip()) for t in os.environ.get("FIXTURE_LEAK_TERMS", "").split(",")
+             if t.strip()]
+    leaks = re.findall("|".join([r"/Volumes/", r"/Users/(?!test/)"] + extra), out)
     if leaks:
         raise SystemExit(f"sanitize left identifying strings: {sorted(set(leaks))}")
     dst.parent.mkdir(parents=True, exist_ok=True)

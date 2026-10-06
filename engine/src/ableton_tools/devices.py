@@ -198,26 +198,38 @@ def transplant(
         p = env.path("EnvelopeTarget/PointeeId")
         if p is not None and p.value() in chain_target_ids:
             pointing.append(env)
+    # In replace mode the target's own devices disappear: drop its automation of
+    # them, or those lanes would point at targets that no longer exist.
+    replaced_ids = set() if mode == "append" else {
+        n.attrs["Id"] for d in tdevs.children() for n in _descendants(d)
+        if n.tag.endswith("Target") and "Id" in n.attrs}
+    tenv = dst.path("AutomationEnvelopes/Envelopes")
+    kept, removed = [], 0
+    for env in tenv.children() if tenv is not None else []:
+        p = env.path("EnvelopeTarget/PointeeId")
+        if p is not None and p.value() in replaced_ids:
+            removed += 1
+        else:
+            kept.append(env)
     copied = 0
+    pieces: list[bytes] = []
     if with_automation and pointing:
-        tenv = dst.path("AutomationEnvelopes/Envelopes")
         if tenv is None:
             warnings.append("target has no AutomationEnvelopes; automation not copied")
         else:
-            n0 = len(tenv.children())
-            pieces = []
+            next_id = max((int(e.attrs.get("Id", "0")) for e in kept), default=-1) + 1
             for i, env in enumerate(pointing):
                 e = Doc(offset_ids(env.text(sdoc), off))
-                e.set_attr(e.root, "Id", n0 + i)
+                e.set_attr(e.root, "Id", next_id + i)
                 pt = e.root.path("EnvelopeTarget/PointeeId")
                 if pt is not None:
                     e.set_value(pt, int(pt.value() or 0) + off)
                 pieces.append(e.apply().data)
-            if tenv.children():
-                tdoc.insert_after(tenv.children()[-1], b"\n" + b"\n".join(pieces))
-            else:
-                tdoc.replace(tenv, b"<Envelopes>\n" + b"\n".join(pieces) + b"\n</Envelopes>")
             copied = len(pieces)
+    if tenv is not None and (removed or pieces):
+        body = [e.text(tdoc) for e in kept] + pieces
+        tdoc.replace(tenv, b"<Envelopes>\n" + b"\n".join(body) + b"\n</Envelopes>"
+                     if body else b"<Envelopes />")
 
     out = set_next_pointee(tdoc.apply())
     return out.to_str(), {
@@ -231,6 +243,7 @@ def transplant(
         "routing_reset": reset,
         "automation_dropped": len(pointing) - copied,
         "automation_copied": copied,
+        "target_automation_removed": removed,
         "files_copied": files,
         "warnings": warnings,
     }

@@ -70,3 +70,23 @@ def test_skip_and_mute_below_threshold(live12_project):
     t = Doc(out2).find_track("Silent")
     assert t.path("DeviceChain/Mixer/Speaker/Manual").value() == "false"
     assert next(s for s in diff2["stems"] if s["label"] == "Silent")["muted"] is True
+
+
+def test_session_placement_when_master_has_no_session_clip(live12_project):
+    """Common Live 12 case: master dragged straight to the Arrangement (empty slot)."""
+    proj = live12_project.parent
+    doc = Doc(LIVE12)
+    sess = doc.session_clips(doc.track_by_id(8))[0]
+    doc.replace(sess.parent, "<Value />")
+    xml = doc.apply().to_str()
+    d = proj / "stems"
+    d.mkdir()
+    x, sr = _master(proj)
+    sf.write(str(d / "0 Take.wav"), x[: sr], sr)
+    out, _ = ist.import_stems(xml, "8", sorted(d.glob("*.wav")), proj,
+                              to="session", unwarped=True)
+    assert validate(Doc(out))["ok"]
+    t = Doc(out).find_track("Take")
+    assert Doc(out).arrangement_clips(t) == []  # nothing un-synced left on the timeline
+    (clip,) = Doc(out).session_clips(t)
+    assert clip.child("IsWarped").value() == "false"

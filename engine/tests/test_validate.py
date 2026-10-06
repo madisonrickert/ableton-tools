@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -8,10 +9,8 @@ from ableton_tools.alsxml import Doc
 from ableton_tools.validate import ref_report, validate
 
 LIVE12 = (FIXTURES / "live12_set.xml").read_text(encoding="utf-8")
-REAL_BUILT = Path(
-    "/path/to/a/real/project/"
-    "built.als"
-)
+# Optional local-only check against a real Live-saved set (never committed).
+REAL_BUILT = Path(os.environ.get("ABLETON_TOOLS_REAL_SET", "/nonexistent"))
 
 
 def test_fixture_validates_ok():
@@ -19,7 +18,7 @@ def test_fixture_validates_ok():
     assert report["ok"], report["errors"]
 
 
-@pytest.mark.skipif(not REAL_BUILT.exists(), reason="local-only real Live 12 set")
+@pytest.mark.skipif(not REAL_BUILT.exists(), reason="set ABLETON_TOOLS_REAL_SET to a real .als")
 def test_real_live_saved_set_validates_ok():
     report = validate(Doc.read(REAL_BUILT))
     assert report["ok"], report["errors"][:5]

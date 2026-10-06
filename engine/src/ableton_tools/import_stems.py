@@ -141,14 +141,17 @@ def check_timeline(
         lag, _alpha, _resid = align.find_lag(head, sig, sr, search_s=1.0, refine=256)
         a, b = (head[lag:], sig) if lag >= 0 else (head, sig[-lag:])
         n = min(len(a), len(b))
-        r = float(np.corrcoef(a[:n], b[:n])[0, 1]) if n > 1 else 0.0
+        with np.errstate(invalid="ignore", divide="ignore"):
+            rv = float(np.corrcoef(a[:n], b[:n])[0, 1]) if n > 1 else float("nan")
+        r: float | None = rv if np.isfinite(rv) else None  # silent stem: undefined
         lag_ms = lag / sr * 1000.0
-        correlated = r > 0.3
+        correlated = r is not None and r > 0.3
         ok = delta_ms <= tolerance_ms and not (correlated and abs(lag_ms) > 1.0)
         note = None if correlated else "not correlated with the master; verify by ear"
         reports.append({"file": str(p), "duration_s": round(info.duration, 4),
                         "sample_rate": info.samplerate, "delta_ms": round(delta_ms, 2),
-                        "lag_ms": round(lag_ms, 3), "r": round(r, 4), "ok": ok, "note": note})
+                        "lag_ms": round(lag_ms, 3), "r": round(r, 4) if r is not None else None,
+                        "ok": ok, "note": note})
     return [r for r in reports if not r["ok"]], reports
 
 
@@ -181,7 +184,7 @@ def _place(doc: Doc, track: Node, to: str, unwarped: bool, dur_s: float, bpm: fl
             if value is None or not arr:
                 raise UsageError("cannot place in Session: master has no clip slot / clip")
             doc.replace(value, b"<Value>" + arr[0].text(doc) + b"</Value>")
-            for c in arr[1:]:
+            for c in arr:  # the copy now lives in Session; nothing stays on the timeline
                 doc.remove(c)
         else:
             for c in arr:

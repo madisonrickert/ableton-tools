@@ -1,4 +1,5 @@
 import gzip
+import os
 from pathlib import Path
 
 import pytest
@@ -8,10 +9,8 @@ from ableton_tools.alsxml import Doc, offset_ids, set_next_pointee
 from ableton_tools.errors import UsageError
 
 LIVE12 = (FIXTURES / "live12_set.xml").read_bytes()
-REAL_SEED = Path(
-    "/path/to/a/real/project/"
-    "seed.als"
-)
+# Optional local-only check against a real Live 12 set you own (never committed).
+REAL_SEED = Path(os.environ.get("ABLETON_TOOLS_REAL_SET", "/nonexistent"))
 
 
 def _span(doc, node):
@@ -49,7 +48,7 @@ def test_noop_roundtrip_is_byte_identical():
     assert doc.apply().data == LIVE12
 
 
-@pytest.mark.skipif(not REAL_SEED.exists(), reason="local-only real Live 12 set")
+@pytest.mark.skipif(not REAL_SEED.exists(), reason="set ABLETON_TOOLS_REAL_SET to a real .als")
 def test_noop_roundtrip_is_byte_identical_on_real_set():
     with gzip.open(REAL_SEED, "rb") as fh:
         raw = fh.read()

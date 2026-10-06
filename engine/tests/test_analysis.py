@@ -93,3 +93,11 @@ def test_cli_analysis_commands(tmp_path, capsys):
     assert len(json.loads(capsys.readouterr().out)["files"]) == 2
     assert cli.main(["warp-check", str(_click_project(tmp_path)), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["warp_map_bpm"] == 120.0
+
+
+def test_warp_check_on_beatless_audio_is_json_safe(tmp_path):
+    als_path = _click_project(tmp_path)
+    silent = tmp_path / "silent.wav"
+    sf.write(str(silent), np.zeros(SR * 4, np.float32), SR)
+    out = analysis.warp_check(als_path, track="master", audio_path=silent)
+    json.dumps(out, allow_nan=False)

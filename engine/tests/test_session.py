@@ -161,3 +161,28 @@ def test_clone_track_remaps_automation_pointing_inside_the_clone():
     new_pointee = clone.path("AutomationEnvelopes/Envelopes").find_all("PointeeId")[0].value()
     assert int(new_pointee) == int(pointee) + 5_000_000
     assert re.search(rf'<AutomationTarget Id="{new_pointee}"', out)
+
+
+def test_group_clip_slot_lists_match_scene_count():
+    xml = _add_returns_and_scenes(LIVE12, extra_returns=0, scenes=12)
+    out, _ = session.group(xml, "G", ["master"])
+    _ok(out)
+    g = Doc(out).find_track("G")
+    lists = g.find_all("ClipSlotList")
+    assert lists and all(len(lst.children()) == 12 for lst in lists)
+
+
+def test_group_end_walks_nested_groups_to_the_outermost_group():
+    def t(tag, tid, name, gid):
+        return (f'<{tag} Id="{tid}"><Name><EffectiveName Value="{name}" /></Name>'
+                f'<TrackGroupId Value="{gid}" /></{tag}>')
+    doc = Doc("<Ableton><LiveSet><Tracks>"
+              + t("GroupTrack", 100, "G", -1) + t("GroupTrack", 101, "H", 100)
+              + t("AudioTrack", 1, "h1", 101) + t("AudioTrack", 2, "h2", 101)
+              + t("AudioTrack", 3, "g1", 100) + t("AudioTrack", 4, "x", -1)
+              + "</Tracks></LiveSet></Ableton>")
+    end = session._group_end
+    assert doc.track_name(end(doc, doc.find_track("G"))) == "g1"
+    assert doc.track_name(end(doc, doc.find_track("h1"))) == "g1"
+    assert doc.track_name(end(doc, doc.find_track("H"))) == "g1"
+    assert doc.track_name(end(doc, doc.find_track("x"))) == "x"

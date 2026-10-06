@@ -279,7 +279,8 @@ SPEC: list[dict[str, Any]] = [
 
 def _emit(obj: Any, as_json: bool, human: Callable[[Any], Any]) -> None:
     if as_json:
-        print(json.dumps(obj, indent=2))
+        # allow_nan=False: NaN/Infinity are not JSON; fail loudly rather than emit them
+        print(json.dumps(obj, indent=2, allow_nan=False))
     else:
         human(obj)
 

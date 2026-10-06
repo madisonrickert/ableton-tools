@@ -88,3 +88,21 @@ def test_cli_unwarped_takes_skip_timeline_check(live12_project, capsys):
     rc, out = _run(capsys, "als", "import-stems", str(live12_project), "--master-track",
                    "master", "--stems", str(d), "--to", "session", "--unwarped")
     assert rc == 0 and out["validation"]["ok"]
+
+
+def _strict(text):
+    def reject(c):
+        raise ValueError(f"non-JSON constant {c}")
+    return json.loads(text, parse_constant=reject)
+
+
+def test_cli_output_is_strict_json_with_silent_stems(live12_project, capsys):
+    proj = live12_project.parent
+    d = proj / "stems"
+    d.mkdir()
+    x, sr = sf.read(str(proj / "Samples" / "master.wav"), dtype="float32")
+    sf.write(str(d / "0 Silent.wav"), np.zeros_like(x), sr)
+    rc = cli.main(["als", "import-stems", str(live12_project), "--master-track", "master",
+                   "--stems", str(d), "--tolerance-ms", "50", "--json"])
+    out = _strict(capsys.readouterr().out)
+    assert rc == 0 and out["diff"]["timeline"][0]["r"] is None

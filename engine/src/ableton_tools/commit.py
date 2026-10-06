@@ -36,6 +36,13 @@ def snapshot(path: str | Path) -> Snapshot:
     return Snapshot(p, hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_mtime)
 
 
+def _decompressed(path: Path) -> bytes:
+    import gzip
+
+    with gzip.open(str(path), "rb") as fh:
+        return fh.read()
+
+
 def live_running() -> bool:
     """True when an Ableton Live process is running (macOS / Windows)."""
     system = platform.system()
@@ -91,21 +98,29 @@ def run(
             kind="validation_failed",
             details=report,
         )
+    # Refs already missing before this edit are the set's existing state, not
+    # damage from the edit: only NEWLY missing project files trigger a restore.
+    before = set(ref_report(Doc(_decompressed(path)),
+                            path.parent)["missing_project"])
     backup_path = als.backup(path, op)
     als.write_als(path, new_xml)  # single write seam for every commit
     refs = ref_report(doc, path.parent)
-    if refs["missing_project"]:
+    newly_missing = [m for m in refs["missing_project"] if m not in before]
+    if newly_missing:
         als.write_als(path, als.read_als(backup_path))
         return {
             "committed": False,
             "kind": "refs_restored",
             "restored_from": backup_path,
             "error": "broken project refs after patch",
-            "missing_refs": refs["missing_project"],
+            "missing_refs": newly_missing,
         }
     warnings = list(report["warnings"]) + [
         f"external file not found (Live will ask to locate it): {p}"
         for p in refs["missing_external"]
+    ] + [
+        f"project file already missing before this edit (not restored): {p}"
+        for p in refs["missing_project"]
     ]
     return {"committed": True, "backup": backup_path, "op": op, "diff": diff,
             "warnings": warnings}

@@ -102,8 +102,8 @@ def _master_clip(doc: Doc, track: str | None) -> tuple[Node, Node]:
                      hint="pass --track NAME for the auto-warped master")
 
 
-def _nearest_ms(points: np.ndarray, t: float) -> float:
-    return float(np.min(np.abs(points - t)) * 1000.0) if len(points) else float("nan")
+def _nearest_ms(points: np.ndarray, t: float) -> float | None:
+    return float(np.min(np.abs(points - t)) * 1000.0) if len(points) else None
 
 
 def warp_check(als_path: str | Path, track: str | None = None, audio_path: str | Path | None = None
@@ -144,10 +144,10 @@ def warp_check(als_path: str | Path, track: str | None = None, audio_path: str |
         notes.append(f"no steady beat detected before {first_beat:.1f} s: markers in the intro "
                      "cannot be verified against the audio (sparse/ambient intro?)")
 
-    def stats(v: list[float]) -> dict[str, float]:
-        a = np.array([x for x in v if not np.isnan(x)])
+    def stats(v: list[float | None]) -> dict[str, float | None]:
+        a = np.array([x for x in v if x is not None])
         if not len(a):
-            return {"median": float("nan"), "p90": float("nan")}
+            return {"median": None, "p90": None}  # nothing detected to compare against
         return {"median": round(float(np.median(a)), 1),
                 "p90": round(float(np.percentile(a, 90)), 1)}
 
@@ -162,7 +162,8 @@ def warp_check(als_path: str | Path, track: str | None = None, audio_path: str |
         "beat_alignment_ms": stats(beat_err),
         "onset_alignment_ms": stats(onset_err),
         "downbeat": {"time_s": round(float(secs[0]), 4),
-                     "nearest_onset_ms": round(onset_err[0], 1)},
+                     "nearest_onset_ms": (round(onset_err[0], 1)
+                                          if onset_err[0] is not None else None)},
         "first_detected_beat_s": round(first_beat, 3) if first_beat is not None else None,
         "sync": {"shared": shared, "differs": differs},
         "notes": notes,

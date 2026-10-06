@@ -141,3 +141,17 @@ def test_plugins_are_reported():
 def test_empty_source_chain_raises():
     with pytest.raises(UsageError, match="no devices"):
         devices.transplant(LIVE12, CHAIN, src_track="source", to_track="master")
+
+
+def test_replace_drops_target_automation_of_replaced_devices():
+    target, _ = _target_with_sax()
+    automated, _ = devices.transplant(target, CHAIN, src_track="master", to_track="SAX",
+                                      with_automation=True)
+    out, diff = devices.transplant(automated, CHAIN, src_track="master", to_track="SAX")
+    _ok(out)
+    assert diff["target_automation_removed"] == 1
+    doc = Doc(out)
+    sax = doc.find_track("SAX")
+    targets = {n.attrs["Id"] for n in doc.nodes() if n.tag.endswith("Target") and "Id" in n.attrs}
+    pointees = [n.value() for n in sax.path("AutomationEnvelopes/Envelopes").find_all("PointeeId")]
+    assert all(p in targets for p in pointees)

@@ -1,6 +1,14 @@
 """Dev-only: build engine/tests/fixtures/chain_src.xml, the device-transplant source set.
 
-    python3 engine/scripts/build_chain_fixture.py
+    python3 engine/scripts/build_chain_fixture.py \
+        RACK.als:TRACK_ID COMP.als:TRACK_ID VST3.als:TRACK_ID
+
+Donor sets are your own real Live 12 sets (paths are never committed):
+  RACK: a track whose chain holds a rack with a self-routed (DeviceOut) sidechain
+  COMP: a track with a top-level Compressor2 sidechained from another track
+  VST3: a track with a VST3 PluginDevice
+Set FIXTURE_LEAK_TERMS="name1,name2" to fail the build if any of those strings
+(e.g. client or project names) survive sanitization.
 
 Starts from the sanitized Live 12 fixture (live12_set.xml) and gives track "1-master"
 (Id 8) a realistic, schema-hard device chain assembled from real Live 12 sets:
@@ -19,19 +27,15 @@ All inserted Ids are offset above the base document's max Id; NextPointeeId is b
 from __future__ import annotations
 
 import gzip
+import os
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "tests/fixtures/live12_set.xml"
 OUT = ROOT / "tests/fixtures/chain_src.xml"
 
-RACK_SRC = ("/path/to/donor-rack/"
-            "donor-rack.als", "120")
-COMP_SRC = ("/path/to/donor-comp/"
-            "donor-comp.als", "21")
-VST3_SRC = ("/path/to/donor-vst3/"
-            "donor-vst3.als", "45")
 ENVELOPE = """<AutomationEnvelope Id="0">
 \t\t\t\t\t\t\t<EnvelopeTarget>
 \t\t\t\t\t\t\t\t<PointeeId Value="{pointee}" />
@@ -106,7 +110,22 @@ def offset_ids(fragment: str, off: int) -> str:
     return re.sub(r'(?<=\s)Id="(\d+)"', lambda m: f'Id="{int(m.group(1)) + off}"', fragment)
 
 
+def _donor(arg: str) -> tuple[str, str]:
+    path, _, tid = arg.rpartition(":")
+    if not path or not tid.isdigit():
+        raise SystemExit(f"expected PATH.als:TRACK_ID, got {arg!r}")
+    return path, tid
+
+
+def _leak_terms() -> list[str]:
+    extra = [t for t in os.environ.get("FIXTURE_LEAK_TERMS", "").split(",") if t.strip()]
+    return [r"/Volumes/", r"/Users/(?!test/)"] + [re.escape(t.strip()) for t in extra]
+
+
 def main() -> None:
+    if len(sys.argv) != 4:
+        raise SystemExit(__doc__)
+    RACK_SRC, COMP_SRC, VST3_SRC = (_donor(a) for a in sys.argv[1:4])  # noqa: N806
     base = BASE.read_text(encoding="utf-8")
     base_max = max(int(i) for i in re.findall(r'(?<=\s)Id="(\d+)"', base))
 
@@ -154,7 +173,7 @@ def main() -> None:
     out = base.replace(master, new_master + "\n\t\t\t" + src_track, 1)
     new_max = max(int(i) for i in re.findall(r'(?<=\s)Id="(\d+)"', out))
     out = re.sub(r'(<NextPointeeId Value=")\d+(")', rf"\g<1>{new_max + 1}\g<2>", out, count=1)
-    leaks = re.findall(r"(?:/Volumes/)", out)
+    leaks = re.findall("|".join(_leak_terms()), out)
     assert not leaks, sorted(set(leaks))
     OUT.write_text(out, encoding="utf-8")
     print(f"wrote {OUT} ({len(out.encode())} bytes); chain targets first AutomationTarget "

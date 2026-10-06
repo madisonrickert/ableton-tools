@@ -53,22 +53,37 @@ def _set_routing(doc: Doc, track: Node, routing: tuple[str, str, str]) -> None:
 
 
 def _group_end(doc: Doc, track: Node) -> Node:
-    """`track` itself, or for a group (or a group member) the group's last member,
-    so an insertion after it never splits a group's contiguous members."""
+    """`track` itself, or -- when it is a group or inside one (at any nesting
+    depth) -- the last track of its OUTERMOST group, so an insertion after the
+    result never splits a group's contiguous members."""
     tracks = doc.tracks()
-    gid = track.attrs.get("Id") if track.tag == "GroupTrack" else None
-    if gid is None:
-        g = track.child("TrackGroupId")
-        gid = g.value() if g is not None and g.value() != "-1" else None
-    if gid is None:
-        return track
-    last = track
-    for t in tracks[tracks.index(track) + 1 :]:
+    by_id = {t.attrs.get("Id"): t for t in tracks}
+
+    def parent_gid(t: Node) -> str | None:
         g = t.child("TrackGroupId")
-        if g is not None and g.value() == gid:
-            last = t
-        elif t.start > last.end:
+        return g.value() if g is not None and g.value() not in (None, "-1") else None
+
+    top = track
+    while (pg := parent_gid(top)) is not None and pg in by_id:
+        top = by_id[pg]
+    if top.tag != "GroupTrack":
+        return track
+
+    def inside(t: Node) -> bool:  # is t (transitively) a member of `top`?
+        seen = set()
+        g = parent_gid(t)
+        while g is not None and g not in seen:
+            if g == top.attrs.get("Id"):
+                return True
+            seen.add(g)
+            g = parent_gid(by_id[g]) if g in by_id else None
+        return False
+
+    last = top
+    for t in tracks[tracks.index(top) + 1 :]:
+        if not inside(t):
             break
+        last = t
     return last
 
 
@@ -134,6 +149,18 @@ def _adapted_group_template(n_returns: int, n_scenes: int) -> bytes:
                 h.set_attr(h.root, "Id", k)
                 pieces.append(h.apply().data)
             tdoc.replace(sends, b"<Sends>\n" + b"\n".join(pieces) + b"\n</Sends>")
+    for csl in root.find_all("ClipSlotList"):  # e.g. FreezeSequencer: one ClipSlot per scene
+        kids = csl.children()
+        if not kids:
+            continue
+        first = kids[0].text(tdoc)
+        pieces = []
+        for k in range(n_scenes):
+            c = Doc(first)
+            c.set_attr(c.root, "Id", k)
+            pieces.append(c.apply().data)
+        tdoc.replace(csl, b"<ClipSlotList>\n" + b"\n".join(pieces) + b"\n</ClipSlotList>"
+                     if n_scenes else b"<ClipSlotList />")
     slots = root.child("Slots")
     if slots is not None:
         body = "".join(
