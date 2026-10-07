@@ -6,7 +6,7 @@ from conftest import FIXTURES
 from ableton_tools import devices, session
 from ableton_tools.alsxml import Doc
 from ableton_tools.errors import UsageError
-from ableton_tools.validate import validate
+from ableton_tools.validate import dangling_device_routes, validate
 
 LIVE12 = (FIXTURES / "live12_set.xml").read_text(encoding="utf-8")
 CHAIN = (FIXTURES / "chain_src.xml").read_text(encoding="utf-8")
@@ -43,7 +43,10 @@ def test_transplant_preserves_chain_bytes_except_ids_and_validates():
     assert [d.tag for d in Doc(out).effects_devices(t).children()] == diff["devices"]
     assert diff["devices"][:4] == ["Gate", "Saturator", "Compressor2", "AudioEffectGroupDevice"]
     # Only Ids and the rewritten routing targets may differ.
-    strip = lambda b: re.sub(rb'Track\.\d+/', b"Track.X/", _norm_ids(b))  # noqa: E731
+    def strip(b):  # ids, and the route numbers that name ids, move together
+        b = re.sub(rb'(Device(?:In|Out)\.)\d+\.([BR])\d+', rb"\1N.\2N", _norm_ids(b))
+        return re.sub(rb'Track\.\d+/', b"Track.X/", b)
+
     src_n, new_n = strip(src_chain), strip(new_chain)
     src_n = src_n.replace(b'"AudioIn/Track.X/PostFxOut"', b'"AudioIn/None"')
     type3 = (rb'<RelativePath Value="Samples/(?:Imported/)?ir\.wav" />\s*'
@@ -69,8 +72,12 @@ def test_parameter_ids_untouched():
 def test_self_routing_follows_the_chain_and_cross_routing_resets():
     target, sax_id = _target_with_sax()
     out, diff = devices.transplant(target, CHAIN, src_track="master", to_track="SAX")
-    _, _, new_chain = _chain(out, "SAX")
-    assert f"AudioIn/Track.{sax_id}/DeviceOut.6.B0,ChainOut".encode() in new_chain
+    doc, sax, new_chain = _chain(out, "SAX")
+    (rack,) = [d for d in doc.effects_devices(sax).children()
+               if d.tag == "AudioEffectGroupDevice"]
+    branch = rack.child("Branches").children()[0]
+    route = f"AudioIn/Track.{sax_id}/DeviceOut.{rack.attrs['Id']}.B{branch.attrs['Id']},ChainOut"
+    assert route.encode() in new_chain
     assert b"Track.14/" not in new_chain and b"Track.8/" not in new_chain
     assert re.search(rb'"AudioIn/None" />\s*<UpperDisplayString Value="No Output" />'
                      rb'\s*<LowerDisplayString Value="" />', new_chain)
@@ -107,7 +114,8 @@ def test_type3_ref_is_planned_for_copy_and_repointed(tmp_path):
     out, diff = devices.transplant(target, CHAIN, src_track="master", to_track="SAX",
                                    target_dir=tmp_path / "proj", source_dir=tmp_path / "src")
     assert diff["files_copied"] == [{"from": str(tmp_path / "src" / "Samples/ir.wav"),
-                                     "to": str(tmp_path / "proj" / "Samples/Imported/ir.wav")}]
+                                     "to": str(tmp_path / "proj" / "Samples/Imported/ir.wav"),
+                                     "existing": False}]
     assert b'<RelativePath Value="Samples/Imported/ir.wav" />' in _chain(out, "SAX")[2]
 
 
@@ -129,7 +137,18 @@ def test_transplant_append_nonempty():
     n = len(d1["devices"])
     assert len(doc.effects_devices(doc.find_track("SAX")).children()) == 2 * n
     chain = _chain(twice, "SAX")[2]
-    assert f"Track.{sax_id}/DeviceOut.{6 + n}.B0".encode() in chain  # index shifted
+    assert chain.count(f"Track.{sax_id}/DeviceOut.".encode()) == 2
+    assert dangling_device_routes(doc) == []  # both copies route to their own rack
+
+
+def test_self_routes_follow_the_transplanted_device_ids():
+    target, sax_id = _target_with_sax()
+    out, diff = devices.transplant(target, CHAIN, src_track="master", to_track="SAX")
+    doc = Doc(out)
+    assert diff["routing_self_remapped"]
+    assert all(r["to"].startswith(f"AudioIn/Track.{sax_id}/DeviceOut.")
+               for r in diff["routing_self_remapped"])
+    assert dangling_device_routes(doc) == []
 
 
 def test_plugins_are_reported():

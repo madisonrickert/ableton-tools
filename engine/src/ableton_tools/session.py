@@ -110,6 +110,7 @@ def add_track(
     if color is not None and track_color is not None:
         clone.set_value(track_color, color)
     _set_routing(clone, root, MAIN_ROUTING)
+    als.reset_copied_state(clone, root, mixer=True)
     clone.replace(clone.effects_devices(root), "<Devices />")
     env = root.path("AutomationEnvelopes/Envelopes")
     if env is not None:

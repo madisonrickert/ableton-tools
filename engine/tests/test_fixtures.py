@@ -34,3 +34,13 @@ def test_chain_src_fixture_has_rack_routing_plugin_and_automation(chain_src_als)
 def test_both_project_fixtures_coexist_in_one_test(live12_project, chain_src_als):
     assert live12_project.parent != chain_src_als.parent
     assert live12_project.exists() and chain_src_als.exists()
+
+
+def test_chain_src_self_routes_resolve_to_devices_on_the_track(chain_src_als):
+    from ableton_tools.alsxml import Doc
+    from ableton_tools.validate import dangling_device_routes
+
+    doc = Doc(_xml(chain_src_als))
+    routes = [n.value() for n in doc.track_by_id(8).find_all("Target")
+              if "Track.8/Device" in (n.value() or "")]
+    assert routes and dangling_device_routes(doc) == []

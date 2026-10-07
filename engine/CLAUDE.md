@@ -102,17 +102,20 @@ master's frames and sample rate (clones inherit its warp markers verbatim);
 sample rate, and a measured start lag (`diff.timeline[].lag_ms`, rejected
 only when correlated with the master). The master's duplicated Session clip
 is dropped from clones unless `--keep-session`. `--to session --unwarped`
-puts un-synced takes in Session slot 1 at native speed.
+puts un-synced takes in the first Session clip slot (scene 1) at native speed.
+Clones keep the master's volume, pan and sends, but never its frozen audio,
+take lanes, mute, solo or arm state.
 
 ## Session-building commands (all dry-run unless --commit)
 - `ableton als set-tempo FILE.als BPM` → `{tempo, previous}`.
 - `ableton als mute FILE.als --tracks A B [--unmute]`.
 - `ableton als add-track FILE.als --name N [--color C] [--after TRACK]` → a
-  bare audio track (no clips/devices/automation), placed after TRACK (never
-  splitting a group).
+  bare audio track (no clips/devices/automation/frozen audio/take lanes,
+  default volume/pan/sends, unmuted), placed after TRACK (never splitting a
+  group).
 - `ableton als group FILE.als --name N --tracks A B C [--color C]` → a
-  GroupTrack before the first member; members get TrackGroupId **and** output
-  routing to the group bus. Members must be contiguous and ungrouped.
+  GroupTrack (from a Live 12 template, so Live 12 sets only) before the first
+  member; members get TrackGroupId **and** output routing to the group bus. Members must be contiguous and ungrouped.
 - `ableton als sync-to-master FILE.als --master M (--tracks … | --all-warped) [--markers]`
   → copies the master clip's Time/CurrentStart/End/loop bounds to the targets'
   warped clips; `--markers` also copies its warp map, otherwise
@@ -125,7 +128,11 @@ the chain's self routing to the destination track; resets cross-track routing
 to None (`diff.routing_reset`, re-assign in Live) unless `--map-track`;
 drops source automation (`diff.automation_dropped`) unless
 `--with-automation`; copies project-relative files into `Samples/Imported/`
-on commit; lists plugins with `found` (installed?) in `diff.plugins`.
+on commit, after the commit guards pass (`diff.files_copied:[{from, to,
+existing}]`: an identical file already there is reused, a different file with
+the same name gets `<name> (2).<ext>`); lists plugins with `found`
+(installed?) in `diff.plugins`. Sources may be Live 11 or 12; targets are
+tested on Live 12.
 
 ## Errors
 Usage failures: exit code 2 (3 for missing files), stderr
@@ -134,7 +141,8 @@ kinds: `live_running` (close Ableton or `--force`), `file_changed` (the set
 was saved since it was read; re-run), `validation_failed` (nothing written;
 likely an engine bug). A commit whose project-relative refs break is restored
 from its backup and reported as `{committed:false, kind:"refs_restored"}`.
-Tracebacks = engine bugs.
+Engine invariant failures (overlapping edits, id collisions) exit 4 with
+`kind: "internal"`; nothing is written. Any other traceback is an engine bug.
 
 ## Conventions
 - `uv` only. Never pip.
@@ -142,7 +150,8 @@ Tracebacks = engine bugs.
   `validation` report). On `--commit`: refuse if Live is running (`--force`
   overrides) or the file changed since read; validate; backup to
   `<project>/Backup/<basename> [YYYY-MM-DD HHMMSS].als` (Ableton's native
-  auto-backup convention, visible in Live's rollback UI); write; re-check
+  auto-backup convention, visible in Live's rollback UI); write atomically
+  (temp file + rename, so a crash never leaves a half-written set); re-check
   project-relative (type 3) refs and auto-restore on breakage. Library and
   built-in device refs (types 5/6/7) never trigger a restore.
 - All `.als` reads/edits go through `alsxml` (lossless byte splices).

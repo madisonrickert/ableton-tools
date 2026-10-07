@@ -5,7 +5,8 @@
 Finds every Live 11/12 set under the given roots (default: macOS Spotlight over
 ~/Music and /Volumes), and transplants EVERY non-empty track/main device chain
 into the sanitized Live 12 fixture. Each result must pass `validate` and contain
-no routing ref to a track that does not exist in the target. Prints a tally and
+no routing ref to a track that does not exist in the target, and every
+self-routing ref must resolve to a device/branch Id on its track. Prints a tally and
 the first failures. Not part of CI: the corpus is the developer's private sets.
 """
 
@@ -22,7 +23,7 @@ from pathlib import Path
 from ableton_tools import devices
 from ableton_tools.alsxml import Doc
 from ableton_tools.errors import UsageError
-from ableton_tools.validate import validate
+from ableton_tools.validate import dangling_device_routes, validate
 
 FIXTURE = (Path(__file__).resolve().parents[1] / "tests/fixtures/live12_set.xml").read_text()
 
@@ -74,6 +75,7 @@ def main() -> int:
             report = validate(Doc(out))
             target_ids = {x.attrs.get("Id") for x in Doc(out).tracks()}
             dangling = [i for i in re.findall(r"Track\.(\d+)/", out) if i not in target_ids]
+            dangling += dangling_device_routes(Doc(out))
             if report["ok"] and not dangling:
                 passed += 1
             else:

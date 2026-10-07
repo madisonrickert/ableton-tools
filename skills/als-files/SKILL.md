@@ -72,6 +72,8 @@ What it does:
 - repoints each clone's sample refs;
 - names clips with bare labels (numeric filename prefixes stripped);
 - demotes `IsSongTempoLeader`;
+- keeps the master's volume, pan and sends, but clears frozen audio, take
+  lanes, mute, solo and arm;
 - applies the default color convention: Lead Vocals 20, Backing Vocals 7,
   Drums 3, Bass 17, Synth/Keys 14, Other/FX 23. Override with `--colors`.
 
@@ -93,7 +95,7 @@ stem that is offset.
 
 **Other placements and levels:**
 - `--to session --unwarped`: for un-synced material (raw takes, unplaced
-  fragments). It puts each file in Session slot 1 at native speed. **Don't put
+  fragments). It puts each file in the first Session clip slot (scene 1) at native speed. **Don't put
   un-synced audio on the Arrangement timeline.**
 - `--skip-below -60` / `--mute-below -60`: drop, or import muted, stems that
   are effectively silent. Check first with `ableton levels DIR`.

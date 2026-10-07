@@ -2688,7 +2688,7 @@
 															</OnOff>
 															<RoutedInput>
 																<Routable>
-																	<Target Value="AudioIn/Track.8/DeviceOut.6.B0,ChainOut" />
+																	<Target Value="AudioIn/Track.8/DeviceOut.100006.B100000,ChainOut" />
 																	<UpperDisplayString Value="Lead Vocals" />
 																	<LowerDisplayString Value="Audio Effect Rack | Clean | Post Mixer" />
 																	<MpeSettings>

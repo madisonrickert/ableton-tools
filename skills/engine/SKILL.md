@@ -56,8 +56,10 @@ verdict yourself — no LLM/API call is built in.
 ## Errors are structured
 
 Operator-correctable failures exit nonzero with `{"error": ..., "hint": ...}`
-on stderr (JSON mode) or `error:`/`hint:` lines (human mode). A traceback
-means an engine bug, not a usage problem.
+on stderr (JSON mode) or `error:`/`hint:` lines (human mode), plus a `kind`
+where one applies. `kind: "internal"` (exit code 4) is an engine invariant
+that failed: nothing was written, and it is a bug to report. Any other
+traceback is also an engine bug, not a usage problem.
 
 ## Safety for `.als` edits
 
@@ -80,7 +82,9 @@ edits), `als` (inspect + patchers + `clone_track`), `validate` (structural
 checks + typed refs), `commit` (guarded commit pipeline), `import_stems`
 (stem-import policy + color convention), `session` (tempo/mute/add-track/
 group/sync), `devices` (chain transplant), `analysis` (levels/locate/
-warp-check), `errors` (`UsageError`). See
+warp-check), `errors` (`UsageError`, `InternalError`). See
 `engine/CLAUDE.md` for JSON shapes and `engine/references/` for the `.als`
-format notes and source-script lineage. Dev loop: `uv run --project
-<engine> --group dev pytest`, `uvx ruff check`, `uvx pyright src`.
+format notes and source-script lineage. Dev loop, from the repo root:
+`uv run --project engine --group dev pytest`, `uvx ruff check engine`,
+`uvx pyright --project engine engine/src` (the `--project` is required; see
+`engine/CLAUDE.md`).

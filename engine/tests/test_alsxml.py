@@ -169,3 +169,26 @@ def test_session_and_arrangement_clips_on_live12_fixture():
 def test_tracks_lists_audio_and_return_tracks_in_order():
     doc = Doc(LIVE12)
     assert [doc.track_name(t) for t in doc.tracks()] == ["1-master", "A-Reverb", "B-Delay"]
+
+
+def test_overlapping_edits_raise_a_structured_internal_error():
+    from ableton_tools.errors import InternalError
+
+    doc = Doc("<A><B/><C/></A>")
+    doc.replace(doc.nodes("B")[0], "<X/>")
+    doc.remove(doc.nodes("A")[0])
+    with pytest.raises(InternalError) as e:
+        doc.apply()
+    assert e.value.kind == "internal" and "report" in (e.value.hint or "")
+
+
+def test_offset_block_leaves_outside_pointers_that_collide_with_local_ids():
+    from ableton_tools.alsxml import offset_block
+
+    # PointeeId 3 points OUTSIDE (e.g. the song tempo's AutomationTarget 3); the
+    # block's WarpMarker Id="3" is a local id that happens to share the number.
+    block = (b'<AudioTrack Id="5"><WarpMarker Id="3" /><AutomationTarget Id="7" />'
+             b'<PointeeId Value="3" /><PointeeId Value="7" /></AudioTrack>')
+    out = offset_block(block, 100)
+    assert b'<WarpMarker Id="103" />' in out and b'<AutomationTarget Id="107" />' in out
+    assert b'<PointeeId Value="3" />' in out and b'<PointeeId Value="107" />' in out

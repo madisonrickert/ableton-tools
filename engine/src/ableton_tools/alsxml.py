@@ -17,7 +17,7 @@ import xml.parsers.expat
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from .errors import UsageError
+from .errors import InternalError, UsageError
 
 TRACK_TAGS = frozenset({"AudioTrack", "MidiTrack", "GroupTrack", "ReturnTrack"})
 CLIP_TAGS = frozenset({"AudioClip", "MidiClip"})
@@ -26,6 +26,7 @@ CLIP_TAGS = frozenset({"AudioClip", "MidiClip"})
 # an attribute value does not end it).
 _START_TAG = re.compile(rb"""<[^\s/>]+(?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*/?>""")
 _ID_ATTR = re.compile(rb'(?<=\s)Id="(\d+)"')
+_POINTEE_ID = re.compile(rb'<\w*Target\s+Id="(\d+)"')
 _LIVE_INDEX_PREFIX = re.compile(r"^\d+-")
 
 
@@ -113,8 +114,7 @@ class Doc:
         return self.data.decode("utf-8")
 
     def write(self, path: str | Path) -> None:
-        with gzip.open(str(path), "wb") as fh:
-            fh.write(self.data)
+        write_atomic(path, self.data)
 
     # ---------- index ----------
     def _index(self) -> list[Node]:
@@ -279,7 +279,8 @@ class Doc:
         prev_end = -1
         for start, end, payload, _ in edits:
             if start < prev_end:
-                raise ValueError(f"overlapping edits at byte {start} (previous ends {prev_end})")
+                raise InternalError(
+                    f"overlapping edits at byte {start} (previous ends {prev_end})")
             out += self.data[pos:start]
             out += payload
             pos = end
@@ -297,6 +298,32 @@ class Doc:
         return ((self.max_id() // 10000) + 1) * 10000
 
 
+def write_atomic(path: str | Path, data: bytes, *, gz: bool = True) -> None:
+    """Write `data` (gzipped unless gz=False) to a temp file beside `path`,
+    fsync, then rename it over `path`: a crash or full disk mid-write leaves
+    the original file intact."""
+    import os
+    import tempfile
+
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as raw:
+            if gz:
+                with gzip.GzipFile(fileobj=raw, mode="wb", filename=path.name) as fh:
+                    fh.write(data)
+            else:
+                raw.write(data)
+            raw.flush()
+            os.fsync(raw.fileno())
+        if path.exists():
+            os.chmod(tmp, path.stat().st_mode & 0o7777)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def offset_ids(fragment: bytes | str, offset: int) -> bytes:
     """Add `offset` to every `Id="N"` attribute. Never touches ParameterId,
     UniqueId, LomId or other *Id-named elements/attributes."""
@@ -306,11 +333,14 @@ def offset_ids(fragment: bytes | str, offset: int) -> bytes:
 
 def offset_block(fragment: bytes | str, offset: int) -> bytes:
     """offset_ids() for a self-contained block (a track, a device chain), plus
-    every <PointeeId Value="N"> that points at an Id INSIDE the block, so the
-    copy's automation targets the copy. Pointers to Ids outside the block (e.g.
-    the song tempo) are left alone."""
+    every <PointeeId Value="N"> that points at a pointee INSIDE the block, so
+    the copy's automation targets the copy. Pointees are the *Target elements
+    (AutomationTarget, ModulationTarget, VolumeModulationTarget: every pointer
+    target in 155 real sets); local ids such as WarpMarker or ClipSlot often
+    share numbers with outside pointees (370 cases), so they never count.
+    Pointers to Ids outside the block (e.g. the song tempo) are left alone."""
     data = fragment.encode("utf-8") if isinstance(fragment, str) else fragment
-    inside = {int(m) for m in _ID_ATTR.findall(data)}
+    inside = {int(m) for m in _POINTEE_ID.findall(data)}
     out = offset_ids(data, offset)
 
     def remap(m: re.Match[bytes]) -> bytes:

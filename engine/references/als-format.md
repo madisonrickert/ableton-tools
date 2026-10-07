@@ -161,8 +161,11 @@ every track; real Live files contain hundreds of such repeats.
 
 Never offset `ParameterId`, `UniqueId` or `LomId`; they are not document ids.
 Automation envelopes point at targets via
-`<EnvelopeTarget><PointeeId Value="N"/>`. When a block is copied, remap the
-pointers that aim inside it (`alsxml.offset_block`).
+`<EnvelopeTarget><PointeeId Value="N"/>`. In a 155-set survey every pointer
+aimed at an `AutomationTarget`, `ModulationTarget` or `VolumeModulationTarget`.
+When a block is copied, remap only the pointers that aim at a `*Target`
+inside it (`alsxml.offset_block`): 370 pointers in that survey shared their
+number with an unrelated local id.
 
 **Device chains.** The track-level chain is
 `<track>/DeviceChain/DeviceChain/Devices` for every track type (Main/Master
@@ -172,7 +175,14 @@ chains in a 2,124-chain survey), so never locate a chain by "the first
 
 Routing targets inside chains reference tracks **by Id**
 (`AudioIn/Track.<Id>/DeviceOut.6.B0,ChainOut`). In the survey, 195 of 298
-were *self* references (rack-internal routing). An unassigned route is
+were *self* references (rack-internal routing). The path after
+`DeviceIn.`/`DeviceOut.` is a list of steps, `<device>.B<branch>` or
+`<device>.R<return branch>`, ending in `ChainIn`/`ChainOut`; a second step
+descends into that branch. Every number is an **`Id` attribute** (the device's
+and the branch's), not a position: 195/195 matched the device Id, only 160
+matched its position. So when a chain's ids are offset, its self routes must
+move by the same offset (`devices.shift_device_path`).
+`validate.dangling_device_routes` lists any that do not resolve. An unassigned route is
 `AudioIn/None` with `UpperDisplayString` set to "No Output", or `MidiOut/None`
 with "None".
 

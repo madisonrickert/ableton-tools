@@ -99,3 +99,20 @@ def test_preexisting_missing_ref_does_not_block_unrelated_commits(live12_project
                      commit=True, force=False)
     assert out["committed"] is True
     assert any("Samples/master.wav" in w for w in out["warnings"])
+
+
+def test_write_als_is_atomic_when_the_write_fails(tmp_path, monkeypatch):
+    from ableton_tools import als
+
+    p = tmp_path / "Song.als"
+    als.write_als(p, "<Ableton>original</Ableton>")
+    before = p.read_bytes()
+
+    def boom(self, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(gzip.GzipFile, "write", boom)
+    with pytest.raises(OSError):
+        als.write_als(p, "<Ableton>new</Ableton>")
+    assert p.read_bytes() == before
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["Song.als"]

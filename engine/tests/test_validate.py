@@ -100,3 +100,17 @@ def test_ref_without_relative_path_type_is_treated_as_project(tmp_path):
     xml = ('<A><SampleRef><FileRef><RelativePath Value="Samples/x.wav" />'
            '<Path Value="/abs/x.wav" /></FileRef></SampleRef></A>')
     assert ref_report(Doc(xml), tmp_path)["missing_project"] == ["Samples/x.wav"]
+
+
+def test_device_route_to_a_missing_device_id_is_a_warning():
+    from ableton_tools.validate import dangling_device_routes
+
+    xml = (FIXTURES / "chain_src.xml").read_text(encoding="utf-8")
+    doc = Doc(xml)
+    (route,) = {n.value() for n in doc.track_by_id(8).find_all("Target")
+                if "Track.8/Device" in (n.value() or "")}
+    broken = xml.replace(route, "AudioIn/Track.8/DeviceOut.999.B0,ChainOut")
+    assert dangling_device_routes(Doc(broken)) == [
+        "AudioIn/Track.8/DeviceOut.999.B0,ChainOut (track 8 has no device Id 999)"]
+    report = validate(Doc(broken))
+    assert report["ok"] and any("DeviceOut.999" in w for w in report["warnings"])

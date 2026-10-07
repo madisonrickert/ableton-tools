@@ -14,8 +14,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .alsxml import Doc, Node, offset_block, set_next_pointee
-from .errors import UsageError
+from .alsxml import Doc, Node, offset_block, set_next_pointee, write_atomic
+from .errors import InternalError, UsageError
 
 
 def read_als(path: str | Path) -> str:
@@ -25,9 +25,8 @@ def read_als(path: str | Path) -> str:
 
 
 def write_als(path: str | Path, xml: str) -> None:
-    """Gzip-write XML text to a .als file."""
-    with gzip.open(str(path), "wb") as fh:
-        fh.write(xml.encode("utf-8"))
+    """Gzip-write XML text to a .als file, atomically (temp file + rename)."""
+    write_atomic(path, xml.encode("utf-8"))
 
 
 def backup(path: str | Path, op: str) -> str:
@@ -214,8 +213,16 @@ def rename_refs(xml: str, mapping: dict[str, str]) -> tuple[str, dict[str, Any]]
     return doc.apply().to_str(), {"changed": changed, "mapping": mapping}
 
 
+SHADOW_CONTAINERS = frozenset({"FreezeSequencer", "TakeLanes"})
+
+
 def _all_clips(doc: Doc) -> list[Node]:
-    return sorted(doc.nodes("AudioClip") + doc.nodes("MidiClip"), key=lambda n: n.start)
+    """Every real clip: frozen renders (FreezeSequencer) and comping takes
+    (TakeLanes) are copies Live manages itself, never addressed by name."""
+    clips = doc.nodes("AudioClip") + doc.nodes("MidiClip")
+    return sorted((c for c in clips
+                   if not any(a.tag in SHADOW_CONTAINERS for a in c.ancestors())),
+                  key=lambda n: n.start)
 
 
 def find_clip(doc: Doc, clip_name: str, *, arrangement_first: bool = True) -> Node:
@@ -321,6 +328,46 @@ def _find_track_block(xml: str, src_track_id: str | int) -> tuple[int, int, str]
     return t.start, t.end, t.tag[: -len("Track")]
 
 
+_DEFAULT_SEND = "0.0003162277571"  # -inf dB: Live's level for a new track's sends
+_DEFAULT_MIXER = (("Volume/Manual", "1"), ("Pan/Manual", "0"), ("PanMode", "0"),
+                  ("SplitStereoPanL/Manual", "-1"), ("SplitStereoPanR/Manual", "1"),
+                  ("CrossFadeState/Manual", "1"))
+
+
+def reset_copied_state(doc: Doc, track: Node, *, mixer: bool) -> None:
+    """Queue the edits that stop a copied track inheriting its source's
+    per-track state: frozen audio, take lanes, mute, solo and arm. With
+    `mixer`, volume, pan and sends also go back to Live's defaults (a bare new
+    track); without it they are kept (stem clones keep the master's gain)."""
+
+    def put(node: Node | None, value: str) -> None:
+        if node is not None and node.value() != value:
+            doc.set_value(node, value)
+
+    put(track.child("Freeze"), "false")
+    for seq in track.find_all("FreezeSequencer"):
+        for clip in seq.find_all("AudioClip") + seq.find_all("MidiClip"):
+            if clip.parent is not None and clip.parent.tag == "Value":
+                doc.replace(clip.parent, "<Value />")
+            else:
+                doc.remove(clip)
+    lanes = track.path("TakeLanes/TakeLanes")
+    if lanes is not None and lanes.children():
+        doc.replace(lanes, "<TakeLanes />")
+    for armed in track.find_all("IsArmed"):
+        put(armed, "false")
+    m = track.path("DeviceChain/Mixer")
+    if m is None:
+        return
+    put(m.path("Speaker/Manual"), "true")
+    put(m.child("SoloSink"), "false")
+    if mixer:
+        for path, value in _DEFAULT_MIXER:
+            put(m.path(path), value)
+        for send in m.find_all("Send"):
+            put(send.child("Manual"), _DEFAULT_SEND)
+
+
 def clone_track(
     xml: str,
     src_track_id: str | int,
@@ -354,7 +401,7 @@ def clone_track(
     clone_ids = {int(i) for i in re.findall(rb'(?<=\s)Id="(\d+)"', clone_bytes)}
     colliding = clone_ids & existing
     if colliding:
-        raise ValueError(
+        raise InternalError(
             f"clone_track: id_offset={id_offset} (new_id={new_id}) collides "
             f"with existing Id(s) {sorted(colliding)[:10]} already present in the "
             f"document. Pass a distinct id_offset, or omit id_offset to "

@@ -14,6 +14,7 @@ device) resolve from Live's own libraries, so they are reported, never failed.
 
 from __future__ import annotations
 
+import re
 import xml.parsers.expat
 from collections import Counter
 from pathlib import Path
@@ -76,6 +77,9 @@ def validate(doc: Doc) -> dict[str, Any]:
                 and not _numeric(n.attrs["Time"]):
             errors.append(f"<{n.tag}> Time={n.attrs['Time']!r} is not numeric")
 
+    warnings += [f"routing {r}: Live will show it as unassigned"
+                 for r in dangling_device_routes(doc)]
+
     group_ids = {t.attrs.get("Id") for t in tracks if t.tag == "GroupTrack"}
     for t in tracks:
         g = t.child("TrackGroupId")
@@ -90,6 +94,51 @@ def validate(doc: Doc) -> dict[str, Any]:
             warnings.append(f"{doc.track_name(t)!r} is grouped but outputs to {target!r}, "
                             f"not {GROUP_ROUTING_TARGET!r} (it bypasses its group bus)")
     return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+_DEVICE_ROUTE = re.compile(r"^(?:Audio|Midi)(?:In|Out)/Track\.(\d+)/Device(?:In|Out)\.(.+)$")
+_ROUTE_STEP = re.compile(r"^(\d+)(?:\.([BR])(\d+))?$")
+
+
+def dangling_device_routes(doc: Doc) -> list[str]:
+    """Routing targets into a track's own devices ("AudioIn/Track.8/DeviceOut.
+    6.B0,ChainOut") whose numbers do not resolve. Each step `N.BK` / `N.RK`
+    names a device by its Id attribute, then one of its Branches (B) or
+    ReturnBranches (R) by Id; a following step descends into that branch."""
+    by_id = {t.attrs.get("Id"): t for t in doc.tracks()}
+    out: list[str] = []
+    for tnode in doc.nodes("Target"):
+        m = _DEVICE_ROUTE.match(tnode.value() or "")
+        if m is None or m.group(1) not in by_id:
+            continue  # cross-track refs to missing tracks are checked elsewhere
+        problem = _resolve_device_path(by_id[m.group(1)], m.group(2))
+        if problem:
+            out.append(f"{tnode.value()} ({problem})")
+    return out
+
+
+def _resolve_device_path(track: Node, path: str) -> str | None:
+    devices = track.path("DeviceChain/DeviceChain/Devices")
+    where = f"track {track.attrs.get('Id')}"
+    for step in path.split(",")[:-1]:  # the last part is ChainIn / ChainOut
+        m = _ROUTE_STEP.match(step)
+        if m is None:
+            return f"unrecognised step {step!r}"
+        dev = next((d for d in (devices.children() if devices is not None else [])
+                    if d.attrs.get("Id") == m.group(1)), None)
+        if dev is None:
+            return f"{where} has no device Id {m.group(1)}"
+        if m.group(2) is None:
+            return None
+        lst = dev.child("Branches" if m.group(2) == "B" else "ReturnBranches")
+        branch = next((b for b in (lst.children() if lst is not None else [])
+                       if b.attrs.get("Id") == m.group(3)), None)
+        if branch is None:
+            return f"device Id {m.group(1)} has no {m.group(2)} branch Id {m.group(3)}"
+        found = branch.find_all("Devices")
+        devices = found[0] if found else None
+        where = f"branch Id {m.group(3)}"
+    return None
 
 
 def _output_target(t: Node) -> str | None:

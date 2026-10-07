@@ -110,6 +110,17 @@ def offset_ids(fragment: str, off: int) -> str:
     return re.sub(r'(?<=\s)Id="(\d+)"', lambda m: f'Id="{int(m.group(1)) + off}"', fragment)
 
 
+def shift_self_routes(fragment: str, tid: str, off: int) -> str:
+    """Self routes name devices/branches by their Id attribute
+    ("Track.8/DeviceOut.6.B0,ChainOut"), so they move with offset_ids()."""
+    def path(m: re.Match[str]) -> str:
+        steps = [re.sub(r"^\d+|(?<=[BR])\d+", lambda g: str(int(g.group(0)) + off), step)
+                 for step in m.group(2).split(",")]
+        return m.group(1) + ",".join(steps)
+
+    return re.sub(rf'(Track\.{tid}/Device(?:In|Out)\.)([^"]+)', path, fragment)
+
+
 def _donor(arg: str) -> tuple[str, str]:
     path, _, tid = arg.rpartition(":")
     if not path or not tid.isdigit():
@@ -152,6 +163,7 @@ def main() -> None:
 
     off = ((base_max // 100000) + 1) * 100000
     chain = offset_ids(chain, off)
+    chain = shift_self_routes(chain, "8", off)
 
     master = track_block(base, "8")
     first_target = re.search(r'<AutomationTarget Id="(\d+)"', chain).group(1)

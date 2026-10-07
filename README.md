@@ -5,7 +5,10 @@ a folder of stems really sums back to a master, find a project's true tempo and
 drift, transcribe an audio part to MIDI, and edit `.als` files safely (repoint
 samples, import stems in sync, group and organize tracks, copy device chains
 between sets). Everything runs through one `ableton` dispatcher backed by a
-local, uv-managed Python engine. Works with Ableton Live 12 and Live 11 sets.
+local, uv-managed Python engine. Built and tested on Ableton Live 12 sets;
+Live 11 sets work for inspection, validation, tempo, file renames and stem
+import. `als group` and `als transplant-devices` are tested on Live 12 targets
+only (transplant accepts Live 11 or 12 sources).
 
 It started as a pile of one-off scripts for a single problem: exported stems
 that drifted out of phase against their master. It grew into a small toolkit
@@ -32,7 +35,7 @@ eye, not a replacement:
   `warp-check`, `als warp-to-grid`). These overlap with Ableton's own
   audio-to-MIDI and auto-warp, and have not been benchmarked against those
   built-ins.
-- `als transplant-devices`. It is verified on 2,053 real device chains, but
+- `als transplant-devices`. It is verified on 2,108 real device chains, but
   you should still listen to the result in Live.
 
 ## Install
@@ -108,8 +111,8 @@ the hood.
   threshold bands (`worst_db`, `chroma_cosine`, drift stats); reading them and
   stating a verdict is the skill's job, not an external service's.
 - **Failures are legible.** Usage problems exit nonzero with
-  `{"error": "...", "hint": "..."}`; a traceback means a bug, not a mistake you
-  made.
+  `{"error": "...", "hint": "..."}`. `kind: "internal"` or a traceback means
+  a bug, not a mistake you made.
 - **The heavy transcription dependency is opt-in.** Only `ableton midi
   transcribe` pulls in basic-pitch/TensorFlow, added on demand so the default
   environment stays light.

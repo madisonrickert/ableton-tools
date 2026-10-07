@@ -186,3 +186,75 @@ def test_group_end_walks_nested_groups_to_the_outermost_group():
     assert doc.track_name(end(doc, doc.find_track("h1"))) == "g1"
     assert doc.track_name(end(doc, doc.find_track("H"))) == "g1"
     assert doc.track_name(end(doc, doc.find_track("x"))) == "x"
+
+
+def _frozen_comped_mixed(xml):
+    """The fixture's master track with a frozen copy and a take-lane copy of its
+    arrangement clip (both still named "master"; the real clip is renamed "arr"),
+    and a non-default mixer: volume 0.5, pan 0.3, sends 0.7, muted, soloed, armed."""
+    doc = Doc(xml)
+    t = doc.track_by_id(8)
+    clip = doc.arrangement_clips(t)[0]
+    copy = clip.text(doc)
+    doc.set_value(clip.child("Name"), "arr")
+    doc.set_value(t.child("Freeze"), "true")
+    doc.replace(t.find_all("FreezeSequencer")[0].path("Sample/ArrangerAutomation/Events"),
+                b"<Events>" + copy + b"</Events>")
+    doc.replace(t.path("TakeLanes/TakeLanes"),
+                b'<TakeLanes><TakeLane Id="0"><ClipAutomation><Events>' + copy
+                + b"</Events></ClipAutomation></TakeLane></TakeLanes>")
+    mixer = t.path("DeviceChain/Mixer")
+    for path, val in (("Volume/Manual", 0.5), ("Pan/Manual", 0.3), ("Speaker/Manual", "false"),
+                      ("SoloSink", "true")):
+        doc.set_value(mixer.path(path), val)
+    for send in mixer.find_all("Send"):
+        doc.set_value(send.child("Manual"), 0.7)
+    for armed in t.find_all("IsArmed"):
+        doc.set_value(armed, "true")
+    return doc.apply().to_str()
+
+
+def _state(doc, t):
+    mixer = t.path("DeviceChain/Mixer")
+    return {
+        "freeze": t.child("Freeze").value(),
+        "freeze_clips": len(t.find_all("FreezeSequencer")[0].find_all("AudioClip")),
+        "take_lanes": len(t.path("TakeLanes/TakeLanes").children()),
+        "volume": mixer.path("Volume/Manual").value(),
+        "pan": mixer.path("Pan/Manual").value(),
+        "sends": {s.child("Manual").value() for s in mixer.find_all("Send")},
+        "speaker": mixer.path("Speaker/Manual").value(),
+        "solo": mixer.child("SoloSink").value(),
+        "armed": {a.value() for a in t.find_all("IsArmed")},
+    }
+
+
+def test_add_track_starts_with_default_mixer_and_no_frozen_or_take_content():
+    out, _ = session.add_track(_frozen_comped_mixed(LIVE12), "SAX", after="master")
+    _ok(out)
+    doc = Doc(out)
+    assert _state(doc, doc.find_track("SAX")) == {
+        "freeze": "false", "freeze_clips": 0, "take_lanes": 0, "volume": "1", "pan": "0",
+        "sends": {"0.0003162277571"}, "speaker": "true", "solo": "false", "armed": {"false"},
+    }
+
+
+def test_import_clones_drop_frozen_take_and_mute_state_but_keep_gain(live12_project):
+    xml = _frozen_comped_mixed(LIVE12)
+    d = live12_project.parent / "stems"
+    d.mkdir()
+    x = 0.01 * np.random.default_rng(1).standard_normal(96000).astype(np.float32)
+    sf.write(str(d / "0 Drums.wav"), x, 48000)
+    out, _ = ist.import_stems(xml, "8", sorted(d.glob("*.wav")), live12_project.parent)
+    _ok(out)
+    doc = Doc(out)
+    assert _state(doc, doc.find_track("Drums")) == {
+        "freeze": "false", "freeze_clips": 0, "take_lanes": 0, "volume": "0.5", "pan": "0.3",
+        "sends": {"0.7"}, "speaker": "true", "solo": "false", "armed": {"false"},
+    }
+
+
+def test_find_clip_ignores_frozen_and_take_lane_copies():
+    doc = Doc(_frozen_comped_mixed(LIVE12))
+    clip = als.find_clip(doc, "master")  # only the Session clip is a real "master" now
+    assert clip in doc.session_clips(doc.track_by_id(8))

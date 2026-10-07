@@ -29,12 +29,14 @@ Typical order when building from stems:
 Notes:
 - **Track names** accept the exact name, the name without Live's `<index>-`
   prefix, or the Id.
-- **group** members must be contiguous and not already grouped.
+- **group** members must be contiguous and not already grouped. It inserts a
+  Live 12 group-track template: use it on Live 12 sets only.
   - The group gets `TrackGroupId`, and every member is **routed to the group
     bus**. Without that routing they would only *look* grouped.
   - Sends and slots adapt to the set's returns and scenes.
-- **add-track** creates a track with no clips, devices or automation. It is
-  never inserted inside a group.
+- **add-track** creates a track with no clips, devices, automation, frozen
+  audio or take lanes, at default volume, pan and sends. It is never inserted
+  inside a group.
 - **sync-to-master** copies the master clip's Arrangement position (the `Time`
   attribute, CurrentStart/End and loop bounds) onto every warped stem clip.
   - Without `--markers`, `diff.marker_mismatch` lists stems whose warp map
@@ -51,11 +53,13 @@ Notes:
     `--map-track SourceTrack=TargetTrack`;
   - it drops the source's automation of those devices
     (`--with-automation` keeps it);
-  - it copies any project sample the chain uses into `Samples/Imported/`;
+  - it copies any project sample the chain uses into `Samples/Imported/`
+    (only once the commit is allowed; a different file with the same name
+    gets `<name> (2).<ext>`);
   - it reports plugins and whether each one is installed (`diff.plugins`).
 
   Use `--to-main` for mastering chains and `--mode append` to add to an
-  existing chain. It has been verified on 2,053 real chains, but tell the user
+  existing chain. It has been verified on 2,108 real chains, but tell the user
   to check the result in Live.
 
 ## Verify

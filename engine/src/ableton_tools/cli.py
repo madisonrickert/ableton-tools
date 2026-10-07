@@ -447,13 +447,15 @@ def _load_manifest(path: str) -> dict[str, Any]:
 
 
 def _als_commit(
-    args: argparse.Namespace, new_xml: str, diff: dict[str, Any], op: str
+    args: argparse.Namespace, new_xml: str, diff: dict[str, Any], op: str,
+    before_write: Callable[[], list[Path]] | None = None,
 ) -> dict[str, Any]:
     """Shared commit/dry-run logic for mutating als subcommands (see commit.py)."""
     from . import commit
 
     return commit.run(
-        args.als, args._snap, new_xml, diff, op, commit=args.commit, force=args.force
+        args.als, args._snap, new_xml, diff, op, commit=args.commit, force=args.force,
+        before_write=before_write,
     )
 
 
@@ -604,14 +606,22 @@ def _cmd_als(args: argparse.Namespace) -> int:
             with_automation=args.with_automation, map_track=mapping,
             target_dir=Path(args.als).resolve().parent, source_dir=src_path.resolve().parent,
         )
-        if args.commit:  # files must exist before the post-write project-ref check
-            for f in diff["files_copied"]:
+        to_copy = [f for f in diff["files_copied"] if not f["existing"]]
+        if args.commit:
+            for f in to_copy:
                 if not Path(f["from"]).exists():
                     raise UsageError(f"source file for a device ref is missing: {f['from']}")
-                Path(f["to"]).parent.mkdir(parents=True, exist_ok=True)
-                if not Path(f["to"]).exists():
-                    shutil.copy2(f["from"], f["to"])
-        out = _als_commit(args, new_xml, diff, "transplant-devices")
+
+        def copy_files() -> list[Path]:  # after the guards; before the ref check
+            created = []
+            for f in to_copy:
+                dest = Path(f["to"])
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f["from"], dest)
+                created.append(dest)
+            return created
+
+        out = _als_commit(args, new_xml, diff, "transplant-devices", before_write=copy_files)
     else:
         raise SystemExit("als requires a subcommand; run `ableton manifest` to list them")
     _emit(out, args.json, lambda o: print(json.dumps(o, indent=2)))

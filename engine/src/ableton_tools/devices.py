@@ -9,7 +9,8 @@ Grounded in a survey of 153 real Live 11/12 sets / 2,124 chains:
   ParameterId/UniqueId/LomId are device-internal and never touched.
 * Routing targets reference tracks by Id: "AudioIn/Track.<Id>/...". Most
   (195/298) are SELF refs (rack-internal DeviceIn/DeviceOut routing) and are
-  remapped to the destination track (device index shifted when appending);
+  remapped to the destination track; their device/branch numbers are the
+  chain's own Id attributes, so they move by the same offset as the Ids;
   cross-track refs are reset to None unless --map-track says where they go.
 * Automation lives outside the chain (track envelopes pointing in): dropped by
   default (reported), copied with with_automation (PointeeIds remapped).
@@ -28,12 +29,26 @@ from pathlib import Path
 from typing import Any
 
 from .alsxml import Doc, Node, offset_block, offset_ids, set_next_pointee
-from .errors import UsageError
+from .errors import InternalError, UsageError
+from .validate import dangling_device_routes
 
 _ROUTE = re.compile(r"^(AudioIn|AudioOut|MidiIn|MidiOut)/Track\.(\d+)/(.*)$")
 _NONE_DISPLAY = {"AudioIn": "No Output", "AudioOut": "No Output", "MidiIn": "No Output",
                  "MidiOut": "None"}
 _WRAP_OPEN, _WRAP_CLOSE = b"<Devices>", b"</Devices>"
+
+
+def shift_device_path(rest: str, off: int) -> str:
+    """"DeviceOut.6.B0,3.B1,ChainOut" -> every device and branch number + off.
+    Those numbers are the Id attributes of the devices and branches inside the
+    chain (verified on 195/195 real self routes), which the transplant offsets
+    by `off`, so the route must move with them."""
+    head, _, path = rest.partition(".")
+    if not head.startswith("Device") or not path:
+        return rest
+    steps = [re.sub(r"^\d+|(?<=[BR])\d+", lambda m: str(int(m.group(0)) + off), step)
+             for step in path.split(",")]
+    return f"{head}.{','.join(steps)}"
 
 
 def _track(doc: Doc, name: str | None, main: bool, role: str) -> Node:
@@ -73,6 +88,34 @@ def _plugin_found(fmt: str, name: str | None, info: Node) -> bool | None:
     return any((r / f"{name}{ext}").exists() for r in roots)
 
 
+def _plan_copy(rel: str, source_dir: str | Path | None, target_dir: str | Path | None,
+               taken: set[str]) -> dict[str, Any]:
+    """Where a project-relative file lands in the target: Samples/Imported/<name>.
+    An identical file already there is reused (`existing`); a different one
+    keeps its name and the copy becomes "<stem> (2)<ext>", "(3)", ..."""
+    import filecmp
+
+    name = Path(rel)
+    src = Path(source_dir) / rel if source_dir else None
+    n = 1
+    while True:
+        cand = name.name if n == 1 else f"{name.stem} ({n}){name.suffix}"
+        dest_rel = f"Samples/Imported/{cand}"
+        dest = Path(target_dir) / dest_rel if target_dir else None
+        if dest_rel in taken:
+            n += 1
+            continue
+        if dest is None or not dest.exists():
+            existing = False
+            break
+        if src is not None and src.exists() and filecmp.cmp(src, dest, shallow=False):
+            existing = True
+            break
+        n += 1
+    return {"from": str(src) if src else rel, "to": str(dest) if dest else dest_rel,
+            "rel": dest_rel, "existing": existing}
+
+
 def transplant(
     target_xml: str,
     source_xml: str | Doc,
@@ -88,8 +131,9 @@ def transplant(
     source_dir: str | Path | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Copy the source track's device chain onto the target track. Returns
-    (new_target_xml, diff). `diff["files_copied"]` is a copy plan; the caller
-    copies the files (only when committing)."""
+    (new_target_xml, diff). `diff["files_copied"]` is a copy plan
+    ({from, to, existing}); the caller copies the files that are not
+    `existing`, only when committing, after the commit guards pass."""
     if mode not in ("replace", "append"):
         raise UsageError(f"--mode must be 'replace' or 'append', not {mode!r}")
     sdoc = source_xml if isinstance(source_xml, Doc) else Doc(source_xml)
@@ -103,7 +147,6 @@ def transplant(
     raw_chain = sdoc.data[kids[0].start : kids[-1].end]
     tdevs = tdoc.effects_devices(dst)
     existing = tdevs.children() if mode == "append" else []
-    shift = len(existing)
     off = tdoc.id_base()
 
     # ---- ids ----
@@ -128,10 +171,7 @@ def transplant(
         upper = parent.child("UpperDisplayString") if parent is not None else None
         lower = parent.child("LowerDisplayString") if parent is not None else None
         if tid == src_id and dst_id is not None:
-            if shift:
-                rest = re.sub(r"^(Device(?:In|Out)\.)(\d+)",
-                              lambda g: f"{g.group(1)}{int(g.group(2)) + shift}", rest)
-            new = f"{kind}/Track.{dst_id}/{rest}"
+            new = f"{kind}/Track.{dst_id}/{shift_device_path(rest, off)}"
             wrapped.set_value(tnode, new)
             if upper is not None:
                 wrapped.set_value(upper, tdoc.track_name(dst))
@@ -153,22 +193,23 @@ def transplant(
 
     # ---- file refs ----
     warnings: list[str] = []
-    files: list[dict[str, str]] = []
+    files: list[dict[str, Any]] = []
+    dest_for: dict[str, str] = {}  # source rel -> target rel
     for ref in wrapped.nodes("FileRef"):
         kind_n = ref.child("RelativePathType")
         k = kind_n.value() if kind_n is not None else None
         rel_n, path_n = ref.child("RelativePath"), ref.child("Path")
         if k == "3" and rel_n is not None and rel_n.value():
             rel = rel_n.value() or ""
-            dest_rel = f"Samples/Imported/{Path(rel).name}"
+            if rel not in dest_for:
+                plan = _plan_copy(rel, source_dir, target_dir, set(dest_for.values()))
+                dest_for[rel] = plan.pop("rel")
+                files.append(plan)
+            dest_rel = dest_for[rel]
             wrapped.set_value(rel_n, dest_rel)
             if path_n is not None:
                 wrapped.set_value(path_n, str(Path(target_dir) / dest_rel) if target_dir
                                   else dest_rel)
-            plan = {"from": str(Path(source_dir) / rel) if source_dir else rel,
-                    "to": str(Path(target_dir) / dest_rel) if target_dir else dest_rel}
-            if plan not in files:
-                files.append(plan)
         elif k == "1" and path_n is not None and path_n.value() \
                 and not Path(path_n.value() or "").exists():
             warnings.append(f"external file not found: {path_n.value()}")
@@ -232,6 +273,10 @@ def transplant(
                      if body else b"<Envelopes />")
 
     out = set_next_pointee(tdoc.apply())
+    broken = [r for r in dangling_device_routes(out)
+              if dst_id is not None and f"/Track.{dst_id}/" in r]
+    if broken:
+        raise InternalError(f"transplanted routing does not resolve: {broken[:3]}")
     return out.to_str(), {
         "source_track": sdoc.track_name(src) or src.tag,
         "target_track": tdoc.track_name(dst) or dst.tag,

@@ -241,8 +241,9 @@ def _retarget_clone(
         if cc is not None:
             doc.set_value(cc, color)
     dropped = {c.start for c in doc.session_clips(track)} if drop_session else set()
-    for leader in track.find_all("IsSongTempoLeader"):
-        if not any(a.start in dropped for a in leader.ancestors()):
+    for leader in track.find_all("IsSongTempoLeader"):  # skip clips removed below
+        if not any(a.start in dropped or a.tag in als.SHADOW_CONTAINERS
+                   for a in leader.ancestors()):
             doc.set_value(leader, "false")
     memo = track.path("Name/MemorizedFirstClipName")
     if memo is not None:
@@ -254,6 +255,7 @@ def _retarget_clone(
         for clip in doc.session_clips(track):
             if clip.parent is not None and clip.parent.tag == "Value":
                 doc.replace(clip.parent, "<Value />")
+    als.reset_copied_state(doc, track, mixer=False)
 
 
 def import_stems(

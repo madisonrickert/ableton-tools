@@ -14,12 +14,13 @@ from __future__ import annotations
 import hashlib
 import platform
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from . import als
-from .alsxml import Doc
+from .alsxml import Doc, write_atomic
 from .errors import UsageError
 from .validate import ref_report, validate
 
@@ -66,7 +67,12 @@ def run(
     *,
     commit: bool,
     force: bool,
+    before_write: Callable[[], list[Path]] | None = None,
 ) -> dict[str, Any]:
+    """`before_write` runs after every guard and validation has passed, just
+    before the backup and write (e.g. copying files the new set refers to). It
+    returns the paths it created; they are removed again if the commit is
+    restored."""
     path = Path(path)
     doc = Doc(new_xml)
     report = validate(doc)
@@ -102,12 +108,15 @@ def run(
     # damage from the edit: only NEWLY missing project files trigger a restore.
     before = set(ref_report(Doc(_decompressed(path)),
                             path.parent)["missing_project"])
+    created = before_write() if before_write is not None else []
     backup_path = als.backup(path, op)
     als.write_als(path, new_xml)  # single write seam for every commit
     refs = ref_report(doc, path.parent)
     newly_missing = [m for m in refs["missing_project"] if m not in before]
     if newly_missing:
-        als.write_als(path, als.read_als(backup_path))
+        write_atomic(path, Path(backup_path).read_bytes(), gz=False)  # verbatim
+        for p in created:
+            p.unlink(missing_ok=True)
         return {
             "committed": False,
             "kind": "refs_restored",
