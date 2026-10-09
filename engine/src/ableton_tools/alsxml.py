@@ -14,6 +14,7 @@ from __future__ import annotations
 import gzip
 import re
 import xml.parsers.expat
+from collections import Counter
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -26,6 +27,10 @@ CLIP_TAGS = frozenset({"AudioClip", "MidiClip"})
 # an attribute value does not end it).
 _START_TAG = re.compile(rb"""<[^\s/>]+(?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*/?>""")
 _ID_ATTR = re.compile(rb'(?<=\s)Id="(\d+)"')
+# Automation envelope points (<FloatEvent Id=…>, <BoolEvent …>, <EnumEvent …>)
+# are numbered in their own space: Live saves sets whose event Ids far exceed
+# NextPointeeId, so they must not count toward it.
+_EVENT_ID = re.compile(rb'<\w+Event\s+Id="(\d+)"')
 _POINTEE_ID = re.compile(rb'<\w*Target\s+Id="(\d+)"')
 _LIVE_INDEX_PREFIX = re.compile(r"^\d+-")
 
@@ -294,6 +299,12 @@ class Doc:
         ids = [int(m) for m in _ID_ATTR.findall(self.data)]
         return max(ids) if ids else 0
 
+    def max_pointee_id(self) -> int:
+        """Max Id that NextPointeeId must exceed: every Id except automation events."""
+        ids = Counter(_ID_ATTR.findall(self.data))
+        ids.subtract(_EVENT_ID.findall(self.data))  # a non-event may share an event's value
+        return max((int(i) for i, n in ids.items() if n > 0), default=0)
+
     def id_base(self) -> int:
         return ((self.max_id() // 10000) + 1) * 10000
 
@@ -351,11 +362,11 @@ def offset_block(fragment: bytes | str, offset: int) -> bytes:
 
 
 def set_next_pointee(doc: Doc) -> Doc:
-    """NextPointeeId = max Id + 1 (Live refuses sets where any Id >= it)."""
+    """NextPointeeId = max pointee Id + 1 (Live refuses sets where any non-event Id >= it)."""
     nodes = doc.nodes("NextPointeeId")
     if not nodes:
         return doc
-    doc.set_value(nodes[0], doc.max_id() + 1)
+    doc.set_value(nodes[0], doc.max_pointee_id() + 1)
     return doc.apply()
 
 

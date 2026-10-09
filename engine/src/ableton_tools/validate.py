@@ -62,7 +62,7 @@ def validate(doc: Doc) -> dict[str, Any]:
 
     npi = doc.nodes("NextPointeeId")
     if npi:
-        max_id = doc.max_id()
+        max_id = doc.max_pointee_id()
         if not _numeric(npi[0].value()) or float(npi[0].value() or 0) <= max_id:
             errors.append(f"NextPointeeId {npi[0].value()} must exceed the max Id {max_id}")
 

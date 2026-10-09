@@ -103,6 +103,19 @@ def test_max_id_id_base_and_next_pointee():
     assert set_next_pointee(doc).nodes("NextPointeeId")[0].value() == "12346"
 
 
+def test_automation_event_ids_do_not_count_toward_next_pointee():
+    # Live numbers envelope points in their own space; real sets have event
+    # Ids far above NextPointeeId (e.g. FloatEvent 214973 vs NextPointeeId 25443).
+    doc = Doc(
+        '<A><NextPointeeId Value="3" /><B Id="12345"/>'
+        '<Events><FloatEvent Id="99999" Time="0" Value="1" />'
+        '<BoolEvent Id="12345" Time="1" Value="true" /></Events></A>'
+    )
+    assert doc.max_id() == 99999
+    assert doc.max_pointee_id() == 12345  # B keeps 12345 even though an event shares it
+    assert set_next_pointee(doc).nodes("NextPointeeId")[0].value() == "12346"
+
+
 def test_main_track_live12_and_live11():
     assert Doc(LIVE12).main_track().tag == "MainTrack"
     assert Doc(MINIMAL_ALS).main_track().tag == "MasterTrack"

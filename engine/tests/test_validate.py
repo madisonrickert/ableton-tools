@@ -60,6 +60,16 @@ def test_next_pointee_id_too_low_fails():
     assert not report["ok"] and any("NextPointeeId" in e for e in report["errors"])
 
 
+def test_automation_event_ids_above_next_pointee_are_valid():
+    npi = int(re.search(r'<NextPointeeId Value="(\d+)"', LIVE12).group(1))
+    xml = LIVE12.replace(
+        "<Events>", f'<Events><FloatEvent Id="{npi * 10}" Time="0" Value="120" />', 1
+    )
+    assert xml != LIVE12
+    report = validate(Doc(xml))
+    assert not any("NextPointeeId" in e for e in report["errors"])
+
+
 def test_duplicate_automation_target_id_fails():
     first = re.search(r'<AutomationTarget Id="(\d+)"', LIVE12).group(1)
     second = re.findall(r'<AutomationTarget Id="(\d+)"', LIVE12)[1]

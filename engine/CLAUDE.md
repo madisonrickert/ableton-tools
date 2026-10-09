@@ -66,7 +66,7 @@ Live 12 (`MainTrack`) and Live 11 (`MasterTrack`).
 `ableton als validate FILE.als --json` → `{file, ok, errors[], warnings[],
 refs:{missing_project[], missing_external[], library, user_library, builtin}}`;
 exit 1 when invalid. Checks: well-formed; unique track and pointee
-(AutomationTarget/ModulationTarget) ids; NextPointeeId > max Id; numeric int
+(AutomationTarget/ModulationTarget) ids; NextPointeeId > max Id (automation-envelope event Ids excluded: Live numbers those separately); numeric int
 nodes (incl. ScaleInformation/Name); TrackGroupIds resolve; grouped tracks
 route to their group (warning).
 
