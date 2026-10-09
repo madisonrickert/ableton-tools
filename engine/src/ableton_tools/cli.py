@@ -93,6 +93,26 @@ SPEC: list[dict[str, Any]] = [
                  _arg("--audio", help="audio to analyze (default: the clip's sample)"), _JSON],
     },
     {
+        "name": "split",
+        "desc": "Cut a rendered arrangement into one file per locator section "
+        "(tempo-map aware; trims trailing silence).",
+        "args": [
+            _arg("render", required=True),
+            _arg("--als", required=True),
+            _arg("--out", required=True),
+            _arg("--start", help="where the render begins: locator name or beat "
+                 "(default: first locator)"),
+            _arg("--names", help="JSON {locator name: output file stem}"),
+            _arg("--skip", nargs="*", help="locator names whose section is not written"),
+            _arg("--trim-db", type=float, default=-60.0,
+                 help="trim trailing audio below this dBFS"),
+            _arg("--no-trim", action="store_true", help="keep sections full length"),
+            _arg("--tail-pad", type=float, default=0.5, help="seconds kept after the last audio"),
+            _arg("--dry-run", action="store_true", help="report sections, write nothing"),
+            _JSON,
+        ],
+    },
+    {
         "name": "midi",
         "desc": "MIDI tools.",
         "subcommands": [
@@ -120,6 +140,12 @@ SPEC: list[dict[str, Any]] = [
             {
                 "name": "validate",
                 "desc": "Structural checks + typed file-ref report (read-only).",
+                "args": [_arg("als", required=True), _JSON],
+            },
+            {
+                "name": "locators",
+                "desc": "Arrangement locators with beat and seconds (tempo-map aware, "
+                "read-only).",
                 "args": [_arg("als", required=True), _JSON],
             },
             {
@@ -459,8 +485,35 @@ def _als_commit(
     )
 
 
+def _cmd_split(args: argparse.Namespace) -> int:
+    from .split import split
+
+    out = split(
+        args.render, args.als, args.out, start=args.start,
+        names=_load_manifest(args.names) if args.names else None, skip=args.skip,
+        trim_db=None if args.no_trim else args.trim_db, tail_pad_s=args.tail_pad,
+        dry_run=args.dry_run,
+    )
+    _emit(out, args.json, lambda o: print(
+        "\n".join(f"{Path(x['file']).name:50s} {x['duration_s']:8.2f}s  @ {x['start_s']:.3f}s"
+                  for x in o["sections"])
+        + "".join(f"\nwarning: {w}" for w in o["warnings"])
+        + ("\n(dry run: nothing written)" if o["dry_run"] else "")))
+    return 0
+
+
 def _cmd_als(args: argparse.Namespace) -> int:
     from . import als
+
+    if args.als_cmd == "locators":
+        from .timeline import locators
+
+        _emit(locators(args.als), args.json, lambda o: print(
+            "\n".join(f"{x['beat']:9.2f}  {x['seconds']:10.3f}s  {x['name']}"
+                      for x in o["locators"])
+            + (f"\narrangement end: beat {o['arrangement_end']['beat']} = "
+               f"{o['arrangement_end']['seconds']:.3f}s" if o["arrangement_end"] else "")))
+        return 0
 
     if args.als_cmd == "inspect":
         _emit(
@@ -687,6 +740,7 @@ DISPATCH: dict[str, Callable[[argparse.Namespace], int]] = {
     "levels": _cmd_levels,
     "locate": _cmd_locate,
     "warp-check": _cmd_warp_check,
+    "split": _cmd_split,
     "midi": _cmd_midi,
     "als": _cmd_als,
 }

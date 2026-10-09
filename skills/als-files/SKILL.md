@@ -1,6 +1,6 @@
 ---
 name: als-files
-description: Inspect and validate an Ableton .als project (tempo, tracks, groups, routing, Session/Arrangement clips, file references) and safely rename or move the audio files it references while patching the .als so links stay intact. Also imports a folder of stems (Suno, MVSEP, remastered vocals…) as color-coded clones of a warped master track that share its warp map (als import-stems), or as un-synced takes in Session view. Use when reorganizing samples, auditing what a .als points to, checking a set is healthy, or loading stems in sync. Mutations are dry-run by default and auto-backup before committing.
+description: Inspect and validate an Ableton .als project (tempo, tracks, groups, routing, Session/Arrangement clips, file references, locators with tempo-map-accurate seconds), split a rendered arrangement into one file per locator section (ableton split) and safely rename or move the audio files it references while patching the .als so links stay intact. Also imports a folder of stems (Suno, MVSEP, remastered vocals…) as color-coded clones of a warped master track that share its warp map (als import-stems), or as un-synced takes in Session view. Use when reorganizing samples, auditing what a .als points to, checking a set is healthy, or loading stems in sync. Mutations are dry-run by default and auto-backup before committing.
 ---
 
 You inspect, validate, and re-link `.als` projects using the bundled Ableton
@@ -41,10 +41,32 @@ The ref report:
   locate them);
 - library/built-in counts: these always resolve.
 
+## Locators and splitting a render
+`ableton als locators <FILE.als> --json` lists every Arrangement locator with
+its beat and its time in seconds, following the tempo automation (steps and
+ramps), plus where the arrangement ends.
+
+To cut an exported render into one file per locator section (e.g. a show
+track into per-cue files):
+
+1. Export the arrangement; note where the export starts (by default the
+   first locator).
+2. Dry-run: `ableton split <RENDER.wav> --als <FILE.als> --out <DIR> [--names map.json] --dry-run --json`.
+   Check `first_audible_s` is near 0 and there's no length warning; if there
+   is, pass `--start <locator name|beat>`.
+3. Run without `--dry-run`. Silent sections (gaps between locators) are skipped
+   with a warning; trailing silence is trimmed to `--tail-pad` (0.5 s).
+   `--names` maps locator names to file names.
+
 ## Rename / move referenced files
 1. Move or rename the actual audio files on disk yourself, or describe the
    intent.
 2. Write a manifest `map.json`: `{"old/rel/path.wav": "new/rel/path.wav", ...}`.
+   Keys can also be absolute paths of files outside the project (relinking
+   them to a project copy). Each matched FileRef gets the new RelativePath,
+   RelativePathType 3 and a matching absolute Path. `<OriginalFileRef>`
+   entries are import provenance Live doesn't load from, and are left alone.
+   Check `diff.refs` (refs rewritten) as well as `diff.changed` (entries matched).
 3. Dry-run: `ableton als rename <FILE.als> --manifest map.json --json`.
    This prints the diff and a validation report, and writes nothing.
 4. Commit: add `--commit`. The engine then:

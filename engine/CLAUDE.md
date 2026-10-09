@@ -70,6 +70,27 @@ exit 1 when invalid. Checks: well-formed; unique track and pointee
 nodes (incl. ScaleInformation/Name); TrackGroupIds resolve; grouped tracks
 route to their group (warning).
 
+## als locators (read-only)
+`ableton als locators FILE.als --json`
+Returns: `{file, tempo_automated, locators:[{name, beat, seconds}],
+arrangement_end:{beat, seconds}|null}`. Seconds follow the main track's tempo
+automation: a step is two same-beat FloatEvents (order kept), unequal
+neighbours are linear ramps, the negative-time event anchors beat 0.
+
+## split
+`ableton split RENDER.wav --als FILE.als --out DIR [--start LOCATOR|BEAT] [--names MAP.json] [--skip NAME …] [--trim-db -60 | --no-trim] [--tail-pad 0.5] [--dry-run] --json`
+Cuts a rendered arrangement into one file per locator section (locator →
+next locator; the last runs to the render's end). `--start` is where the
+render begins (default: the first locator, i.e. an export of the locator
+span). MAP.json: `{"locator name": "output stem"}`. Trailing audio below
+`--trim-db` is trimmed, keeping `--tail-pad` s; an all-silent section is not
+written (warning). Output keeps rate/channels/subtype; 16/24-bit PCM is
+sample-exact. Returns `{render, als, dry_run, start_beat, offset_s,
+first_audible_s, sections:[{locator, beat, start_s, duration_s, file}],
+warnings[]}`; a warning flags a render whose length doesn't match
+start..arrangement end (wrong `--start`). `first_audible_s` near 0 confirms
+the alignment.
+
 ## als rename | move
 `ableton als rename FILE.als --manifest MAP.json [--commit] --json`
 MAP.json: `{"old/rel/path.wav": "new/rel/path.wav", ...}`.

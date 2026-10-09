@@ -78,7 +78,7 @@ the hood.
 
 | Skill | Runs | What it does |
 |---|---|---|
-| als-files | `ableton als inspect \| validate \| rename \| move \| import-stems` | Inspect and validate a `.als` (tempo, tracks, groups, routing, clips, refs). Safely rename or move the audio it references. Import stems as color-coded clones of a warped master: same-timeline tolerance, Session/unwarped placement, silent-stem skip/mute. |
+| als-files | `ableton als inspect \| validate \| locators \| rename \| move \| import-stems`, `ableton split` | Inspect and validate a `.als` (tempo, tracks, groups, routing, clips, refs). List locators with tempo-map-accurate seconds, and split a render into one file per locator section. Safely rename or move the audio it references. Import stems as color-coded clones of a warped master: same-timeline tolerance, Session/unwarped placement, silent-stem skip/mute. |
 | als-build | `ableton als set-tempo \| add-track \| group \| mute \| sync-to-master \| transplant-devices` | Build and organize a session: real group folders routed to their bus, bare tracks, mutes, stems re-synced to a moved master. Also copies device chains between sets (experimental). |
 | als-warp | `ableton als warp-to-grid \| move-clip \| snap` | Grid-lock clips to a fixed project tempo with two warp markers each, and reposition clips to exact beats. |
 | midi-compare | `ableton midi compare` | Compare two or three MIDI files by harmonic content (chroma cosine) and timing drift. |
