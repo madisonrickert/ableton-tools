@@ -191,26 +191,48 @@ def set_tempo(xml: str, bpm: float) -> str:
     return doc.apply().to_str()
 
 
-def rename_refs(xml: str, mapping: dict[str, str]) -> tuple[str, dict[str, Any]]:
-    """Replace RelativePath/Path values per `mapping` (old_rel -> new_rel).
-    Only <RelativePath> and <Path> leaves are patched; any other element whose
-    value happens to equal an old path is left alone. Absolute <Path> leaves
-    ending in the old filename get the new filename."""
+def rename_refs(
+    xml: str, mapping: dict[str, str], project_dir: Path | None = None
+) -> tuple[str, dict[str, Any]]:
+    """Re-point file references per `mapping` (old -> new project-relative path).
+
+    Works per <FileRef> so a ref's RelativePath and absolute Path stay consistent.
+    A ref matches `old` when its RelativePath equals it, or its absolute Path
+    equals `old` (an absolute key) or `project_dir/old`. A match gets
+    RelativePath = `new`, RelativePathType 3 (project) and, when `project_dir`
+    is known, Path = `project_dir/new`; otherwise only Path's filename changes.
+    A relative value is never written into Path.
+
+    Refs under <OriginalFileRef> are left alone: they only record where a sample
+    was first imported from, and Live doesn't load audio from them.
+    Only <RelativePath>/<Path>/<RelativePathType> leaves are patched."""
     doc = Doc(xml)
-    changed = 0
-    for old, new in mapping.items():
-        old_name, new_name = Path(old).name, Path(new).name
-        hit = False
-        for n in doc.nodes("RelativePath") + doc.nodes("Path"):
-            v = n.value() or ""
-            if n.tag in ("RelativePath", "Path") and v == old:
-                doc.set_value(n, new)
-                hit = True
-            elif n.tag == "Path" and v.endswith("/" + old_name):
-                doc.set_value(n, v[: -len(old_name)] + new_name)
-                hit = True
-        changed += hit
-    return doc.apply().to_str(), {"changed": changed, "mapping": mapping}
+    hits: dict[str, int] = {old: 0 for old in mapping}
+    for ref in doc.nodes("FileRef"):
+        if any(a.tag == "OriginalFileRef" for a in ref.ancestors()):
+            continue
+        rel, path = ref.child("RelativePath"), ref.child("Path")
+        rtype = ref.child("RelativePathType")
+        rel_v = rel.value() if rel is not None else None
+        path_v = path.value() if path is not None else None
+        for old, new in mapping.items():
+            abs_old = str(project_dir / old) if project_dir is not None else None
+            if not (rel_v == old or (path_v is not None and path_v in (old, abs_old))):
+                continue
+            if rel is not None:
+                doc.set_value(rel, new)
+            if rtype is not None and rel is not None:
+                doc.set_value(rtype, 3)
+            if path is not None and path_v:
+                if project_dir is not None:
+                    doc.set_value(path, str(project_dir / new))
+                elif path_v.endswith("/" + Path(old).name):
+                    doc.set_value(path, path_v[: -len(Path(old).name)] + Path(new).name)
+            hits[old] += 1
+            break
+    changed = sum(1 for n in hits.values() if n)
+    diff = {"changed": changed, "refs": sum(hits.values()), "mapping": mapping}
+    return doc.apply().to_str(), diff
 
 
 SHADOW_CONTAINERS = frozenset({"FreezeSequencer", "TakeLanes"})

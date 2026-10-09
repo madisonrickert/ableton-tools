@@ -73,7 +73,13 @@ route to their group (warning).
 ## als rename | move
 `ableton als rename FILE.als --manifest MAP.json [--commit] --json`
 MAP.json: `{"old/rel/path.wav": "new/rel/path.wav", ...}`.
-Dry-run returns `{dry_run:true, op, diff:{changed, mapping}}`. With `--commit`:
+Keys are project-relative paths, or absolute paths for files outside the
+project. Matching is per `<FileRef>`: a match sets RelativePath to the new
+path, RelativePathType to 3 and Path to `<project>/<new>`, so the two stay
+consistent. Refs under `<OriginalFileRef>` (import provenance, not loaded by
+Live) are never touched.
+Dry-run returns `{dry_run:true, op, diff:{changed, refs, mapping}}`
+(`changed` = manifest entries that matched, `refs` = FileRefs rewritten). With `--commit`:
 `{committed:true, backup, op, diff}` or a restore report if refs break.
 
 ## als warp-to-grid

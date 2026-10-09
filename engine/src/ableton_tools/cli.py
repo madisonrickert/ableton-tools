@@ -494,12 +494,10 @@ def _cmd_als(args: argparse.Namespace) -> int:
 
     args._snap = commit.snapshot(args.als)  # before reading: guards concurrent saves
     xml = als.read_als(args.als)
-    if args.als_cmd == "rename":
-        new_xml, diff = als.rename_refs(xml, _load_manifest(args.manifest))
-        out = _als_commit(args, new_xml, diff, "rename")
-    elif args.als_cmd == "move":
-        new_xml, diff = als.rename_refs(xml, _load_manifest(args.manifest))
-        out = _als_commit(args, new_xml, diff, "move")
+    if args.als_cmd in ("rename", "move"):
+        project_dir = Path(args.als).resolve().parent
+        new_xml, diff = als.rename_refs(xml, _load_manifest(args.manifest), project_dir)
+        out = _als_commit(args, new_xml, diff, args.als_cmd)
     elif args.als_cmd == "warp-to-grid":
         spec = _load_manifest(args.clips)  # {clip_name: duration_seconds}
         new_xml = als.set_tempo(xml, args.tempo)

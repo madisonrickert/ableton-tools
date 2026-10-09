@@ -214,6 +214,47 @@ def test_rename_refs_only_touches_path_tags(als_file):
     assert diff["changed"] == 1
 
 
+def _fileref_xml(rel: str, path: str, rtype: int = 3, original: str | None = None) -> str:
+    orig = (
+        "<SourceContext><SourceContext Id=\"0\"><OriginalFileRef><FileRef Id=\"9\">"
+        f'<RelativePathType Value="0" /><RelativePath Value="" /><Path Value="{original}" />'
+        "</FileRef></OriginalFileRef></SourceContext></SourceContext>"
+        if original else ""
+    )
+    return (
+        "<Ableton><AudioClip><SampleRef><FileRef>"
+        f'<RelativePathType Value="{rtype}" /><RelativePath Value="{rel}" /><Path Value="{path}" />'
+        f"</FileRef>{orig}</SampleRef></AudioClip></Ableton>"
+    )
+
+
+def test_rename_refs_moves_absolute_path_with_the_relative_one(tmp_path):
+    xml = _fileref_xml("take.wav", f"{tmp_path}/take.wav")
+    out, diff = als.rename_refs(xml, {"take.wav": "Samples/Processed/take.wav"}, tmp_path)
+    assert '<RelativePath Value="Samples/Processed/take.wav" />' in out
+    assert f'<Path Value="{tmp_path}/Samples/Processed/take.wav" />' in out
+    assert diff["changed"] == 1 and diff["refs"] == 1
+
+
+def test_rename_refs_leaves_original_file_ref_provenance_alone(tmp_path):
+    lib = "/Volumes/Lib/SFX/roar.wav"
+    project_copy = f"{tmp_path}/Samples/Imported/roar.wav"
+    xml = _fileref_xml("Samples/Imported/roar.wav", project_copy, original=lib)
+    out, diff = als.rename_refs(xml, {lib: "Samples/Imported/roar.wav"}, tmp_path)
+    assert f'<Path Value="{lib}" />' in out  # never rewritten into a relative Path
+    assert diff["changed"] == 0
+
+
+def test_rename_refs_absolute_key_relinks_external_clip_into_project(tmp_path):
+    lib = "/Volumes/Lib/SFX/roar.wav"
+    xml = _fileref_xml("../../Volumes/Lib/SFX/roar.wav", lib, rtype=1)
+    out, diff = als.rename_refs(xml, {lib: "Samples/Imported/roar.wav"}, tmp_path)
+    assert '<RelativePathType Value="3" />' in out
+    assert '<RelativePath Value="Samples/Imported/roar.wav" />' in out
+    assert f'<Path Value="{tmp_path}/Samples/Imported/roar.wav" />' in out
+    assert diff["changed"] == 1
+
+
 def test_warp_to_grid_errors_on_missing_warpmarkers(als_file):
     xml = als.read_als(str(als_file()))
     xml = re.sub(r"<WarpMarkers>.*?</WarpMarkers>\n?", "", xml, flags=re.DOTALL)
